@@ -1,0 +1,45 @@
+<?php
+/*
+Plugin Name: Nostr Login
+Description: Enables login and registration using Nostr keys
+Version: 1.0
+Author: Your Name
+*/
+
+if (!defined('ABSPATH')) {
+    exit; // Exit if accessed directly
+}
+
+// Include necessary files
+require_once plugin_dir_path(__FILE__) . 'includes/class-nostr-login.php';
+
+function nostr_login_init() {
+    $nostr_login = new Nostr_Login();
+    $nostr_login->init();
+}
+add_action('plugins_loaded', 'nostr_login_init');
+
+function use_nostr_avatar_url($url, $id_or_email, $args) {
+    $user = false;
+    if (is_numeric($id_or_email)) {
+        $user = get_user_by('id', $id_or_email);
+    } elseif (is_object($id_or_email)) {
+        if (!empty($id_or_email->user_id)) {
+            $user = get_user_by('id', $id_or_email->user_id);
+        }
+    } else {
+        $user = get_user_by('email', $id_or_email);
+    }
+
+    if ($user && is_object($user)) {
+        $nostr_avatar = get_user_meta($user->ID, 'nostr_avatar', true);
+        error_log("Attempting to use Nostr avatar for user {$user->ID}: " . $nostr_avatar);
+        if ($nostr_avatar) {
+            return $nostr_avatar;
+        }
+    }
+
+    error_log("Using default avatar URL: " . $url);
+    return $url;
+}
+add_filter('get_avatar_url', 'use_nostr_avatar_url', 10, 3);
