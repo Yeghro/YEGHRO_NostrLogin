@@ -33,3 +33,8 @@ Npub: npub1lqs30x7466guvx6r2cek8z9d4hpucycy7j08wx58cwx70m206q3qrscejr
 Nip05: YEGHRO@YEGHRO.site
 
 getAbly: YEGHRO@getalby.com
+
+![image](https://github.com/Yeghro/WordpressNostrLogin/assets/130201060/81a9bb44-52e7-4c68-b0ef-96353018ceca)
+
+![image](https://github.com/Yeghro/WordpressNostrLogin/assets/130201060/5b5a40c7-0131-4864-b33d-c035bd66bf6e)
+
