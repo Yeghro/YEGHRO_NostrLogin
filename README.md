@@ -18,6 +18,8 @@ A plugin that allow users to log into your wordpress site using their Nostr keys
 
 
 If you found this useful shoot us a zap on Nostr.  
+
 Npub: npub1lqs30x7466guvx6r2cek8z9d4hpucycy7j08wx58cwx70m206q3qrscejr
+
 Nip05: YEGHRO@YEGHRO.site
 getAbly: YEGHRO@getalby.com
