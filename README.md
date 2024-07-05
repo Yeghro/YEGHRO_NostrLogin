@@ -1,13 +1,21 @@
 === Nostr Login ===
+
 Contributors: (yeghro)
+
 Tags: nostr, login, authentication
+
 Requires at least: 5.0
+
 Tested up to: (6.6)
+
 Stable tag: 1.0.0
+
 License: GPLv2 or later
+
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
 Allow users to log into your wordpress site using their Nostr keys.
+
 == Description ==
 A plugin that allow users to log into your wordpress site using their Nostr keys.  Can use private key directly or for better security user can utilize their nostr key signers like getAbly or Nost2x.
 
