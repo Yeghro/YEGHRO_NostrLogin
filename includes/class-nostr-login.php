@@ -65,21 +65,21 @@ class Nostr_Login {
 
     public function add_custom_user_profile_fields($user) {
         ?>
-        <h3><?php _e("Nostr Information", "nostr-login"); ?></h3>
+        <h3><?php esc_html_e("Nostr Information", "nostr-login"); ?></h3>
     
         <table class="form-table">
             <tr>
-                <th><label for="nostr_public_key"><?php _e("Nostr Public Key"); ?></label></th>
+                <th><label for="nostr_public_key"><?php esc_html_e("Nostr Public Key"); ?></label></th>
                 <td>
                     <input type="text" name="nostr_public_key" id="nostr_public_key" value="<?php echo esc_attr(get_user_meta($user->ID, 'nostr_public_key', true)); ?>" class="regular-text" readonly />
-                    <p class="description"><?php _e("Your Nostr public key."); ?></p>
+                    <p class="description"><?php esc_html_e("Your Nostr public key."); ?></p>
                 </td>
             </tr>
             <tr>
-                <th><label for="Nip05"><?php _e("Nostr Nip05"); ?></label></th>
+                <th><label for="Nip05"><?php esc_html_e("Nostr Nip05"); ?></label></th>
                 <td>
                     <input type="text" name="nip05" id="nip05" value="<?php echo esc_attr(get_user_meta($user->ID, 'nip05', true)); ?>" class="regular-text" readonly />
-                    <p class="description"><?php _e("You Nostr Nip05 address."); ?></p>
+                    <p class="description"><?php esc_html_e("You Nostr Nip05 address."); ?></p>
                 </td>
             </tr>
 
@@ -90,6 +90,10 @@ class Nostr_Login {
 
 
     public function ajax_nostr_login() {
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'nostr_login_action')) {
+            wp_send_json_error(array('message' => 'Security check failed.'));
+        }
+
         error_log('Received metadata: ' . print_r($_POST['metadata'], true));
         check_ajax_referer('nostr-login-nonce', 'nonce');
     
@@ -204,6 +208,7 @@ class Nostr_Login {
                 <input type="checkbox" id="nostr_login_toggle">
                 <span>Use Nostr Login</span>
             </label>
+            <?php wp_nonce_field('nostr_login_action', 'nostr_login_nonce'); ?>
         </div>
         <p class="nostr-login-field" style="display:none;">
             <label for="nostr_private_key">Nostr Private Key</label>
