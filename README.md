@@ -1,40 +1,76 @@
-=== Nostr Login ===
+# Nostr Login
 
-Contributors: (yeghro)
-
-Tags: nostr, login, authentication
-
+Contributors: YEGHRO
+Tags: login, authentication, nostr, Bitcoin/lightning Network
 Requires at least: 5.0
-
-Tested up to: (6.6)
-
-Stable tag: 1.0.0
-
+Tested up to: 6.5
+Stable tag: 1.0
+Requires PHP: 7.0
 License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-License URI: http://www.gnu.org/licenses/gpl-2.0.html
+Enable login and registration using Nostr keys for your WordPress site.
 
-Allow users to log into your wordpress site using their Nostr keys.
+## Description
 
-== Description ==
+Nostr Login is a WordPress plugin that allows users to log in and register using their Nostr keys. This plugin integrates the Nostr protocol with WordPress, providing a seamless authentication experience for users who prefer using their Nostr identities.
 
-A plugin that allow users to log into your wordpress site using their Nostr keys.  Can use private key directly or for better security user can utilize their nostr key signers like getAbly or Nost2x.
+Key features:
+- Login using Nostr private key
+- Login using Nostr browser extension
+- Automatic user registration for new Nostr users
+- Profile information sync from Nostr metadata
+- Custom avatar support using Nostr profile picture
+- Admin settings for configuring Nostr relays
 
-== Installation ==
-1. Upload the plugin files to the `/wp-content/plugins/nostr-login` directory, or install the plugin through the WordPress plugins screen directly.
-2. Activate the plugin through the 'Plugins' screen in WordPress.
-3. Use the Settings->Nostr Login screen to configure the plugin.
+## Installation
 
+1. Upload the `nostr-login` folder to the `/wp-content/plugins/` directory
+2. Activate the plugin through the 'Plugins' menu in WordPress
+3. Configure the plugin settings under 'Settings' > 'Nostr Login'
 
-If you found this useful shoot us a zap on Nostr.  
+## Frequently Asked Questions
 
-Npub: npub1lqs30x7466guvx6r2cek8z9d4hpucycy7j08wx58cwx70m206q3qrscejr
+### What is Nostr?
 
-Nip05: YEGHRO@YEGHRO.site
+Nostr (Notes and Other Stuff Transmitted by Relays) is a decentralized protocol that enables global, censorship-resistant social media.
 
-getAbly: YEGHRO@getalby.com
+### Is it safe to use my Nostr private key to log in?
 
-![image](https://github.com/Yeghro/WordpressNostrLogin/assets/130201060/81a9bb44-52e7-4c68-b0ef-96353018ceca)
+While the plugin is designed with security in mind, it's generally recommended to use a Nostr-compatible browser extension for the most secure experience. The plugin supports this method of authentication.
 
-![image](https://github.com/Yeghro/WordpressNostrLogin/assets/130201060/5b5a40c7-0131-4864-b33d-c035bd66bf6e)
+### Can I use this plugin alongside traditional WordPress login?
 
+Yes, the plugin adds Nostr login as an additional option without removing the traditional WordPress login method.
+
+## Screenshots
+
+1. Nostr login toggle on the WordPress login page
+2. Nostr login fields and buttons
+3. Admin settings page for configuring Nostr relays
+
+## Changelog
+
+### 1.0
+* Initial release
+
+## Upgrade Notice
+
+### 1.0
+Initial release of the Nostr Login plugin.
+
+## Additional Information
+
+### Usage
+
+After activating the plugin, users will see a "Use Nostr Login" toggle on the WordPress login page. When enabled, users can either enter their Nostr private key or use a compatible Nostr browser extension to log in.
+
+For first-time users, the plugin will automatically create a new WordPress account using the Nostr public key and available profile information.
+
+### Configuration
+
+Administrators can configure the Nostr relays used by the plugin under 'Settings' > 'Nostr Login'. By default, the plugin uses a set of predefined relays, but these can be customized to suit your needs.
+
+### Development
+
+This plugin is open source and we welcome contributions. Please visit our GitHub repository [insert link here] to submit issues, feature requests, or pull requests.

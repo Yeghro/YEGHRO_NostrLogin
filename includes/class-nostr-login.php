@@ -90,12 +90,9 @@ class Nostr_Login {
 
 
     public function ajax_nostr_login() {
-        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'nostr_login_action')) {
-            wp_send_json_error(array('message' => 'Security check failed.'));
-        }
-
-        error_log('Received metadata: ' . print_r($_POST['metadata'], true));
         check_ajax_referer('nostr-login-nonce', 'nonce');
+    
+        error_log('Received metadata: ' . print_r($_POST['metadata'], true));
     
         $public_key = isset($_POST['public_key']) ? sanitize_text_field($_POST['public_key']) : '';
         $metadata_json = isset($_POST['metadata']) ? stripslashes($_POST['metadata']) : '';
@@ -133,7 +130,7 @@ class Nostr_Login {
         } else {
             wp_send_json_error(array('message' => 'Login failed. Please try again.'));
         }
-    }
+    }    
     
     private function get_user_by_public_key($public_key) {
         $users = get_users(array(
