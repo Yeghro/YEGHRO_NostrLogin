@@ -73,4 +73,4 @@ Administrators can configure the Nostr relays used by the plugin under 'Settings
 
 ### Development
 
-This plugin is open source and we welcome contributions. Please visit our GitHub repository [insert link here] to submit issues, feature requests, or pull requests.
+This plugin is open source and we welcome contributions. 
