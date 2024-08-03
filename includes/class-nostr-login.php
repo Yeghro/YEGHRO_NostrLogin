@@ -88,6 +88,24 @@ class Nostr_Login {
         <?php
     }
 
+    public function save_custom_user_profile_fields($user_id) {
+        if (!current_user_can('edit_user', $user_id)) {
+            return false;
+        }
+    
+        // Save Nostr public key
+        if (isset($_POST['nostr_public_key'])) {
+            update_user_meta($user_id, 'nostr_public_key', sanitize_text_field($_POST['nostr_public_key']));
+        }
+    
+        // Save Nip05
+        if (isset($_POST['nip05'])) {
+            update_user_meta($user_id, 'nip05', sanitize_text_field($_POST['nip05']));
+        }
+    
+        // Add any other custom fields you want to save here
+    }
+
 
     public function ajax_nostr_login() {
         check_ajax_referer('nostr-login-nonce', 'nonce');
@@ -131,7 +149,7 @@ class Nostr_Login {
             wp_send_json_error(array('message' => 'Login failed. Please try again.'));
         }
     }    
-    
+     
     private function get_user_by_public_key($public_key) {
         $users = get_users(array(
             'meta_key' => 'nostr_public_key',
