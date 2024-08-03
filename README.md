@@ -46,8 +46,11 @@ Yes, the plugin adds Nostr login as an additional option without removing the tr
 ## Screenshots
 
 1. Nostr login toggle on the WordPress login page
-2. Nostr login fields and buttons
-3. Admin settings page for configuring Nostr relays
+   ![image](https://github.com/user-attachments/assets/8ae6a901-cc94-402b-836b-6560ec64b477)
+3. Nostr login fields and buttons
+   ![image](https://github.com/user-attachments/assets/0805e84c-75e4-4f19-b22d-7b50535098f7)
+5. Admin settings page for configuring Nostr relays
+   ![image](https://github.com/user-attachments/assets/eb2c1aa8-335f-4cb9-b3de-34e4ec06ed06)
 
 ## Changelog
 
