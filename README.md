@@ -57,7 +57,7 @@ Yes, the plugin adds Nostr login as an additional option without removing the tr
 
 3. Admin settings page for configuring Nostr relays
    <br>
-   <img src="https://github.com/user-attachments/assets/eb2c1aa8-335f-4cb9-b3de-34e4ec06ed06" alt="Admin settings" width="300">
+   <img src="https://github.com/user-attachments/assets/eb2c1aa8-335f-4cb9-b3de-34e4ec06ed06" alt="Admin settings" width="500">
    <div style="clear: both;"></div>
 
 
