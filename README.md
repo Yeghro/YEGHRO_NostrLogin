@@ -74,7 +74,8 @@ Initial release of the Nostr Login plugin.
 
 ## Additional Information
 
-Known conflict with cloudflare turnstile.  If you have the turnstile configure to check everything login attempt it will conflict with our plugin and make it difficult to login.  You can fix this by loggin into your wordpress server either through terminal or ftp and removing the plugin from the wordpress plugin folder located at "/var/www/html/wp-content/plugins/NostrLogin".  You can either delete it or move it out of the folder temporarily to get access restored to your site to change the turnstile settings or delete it completely you need to have the turnstile turned on for standard logins.
+<h3>Known conflict</h3>
+with cloudflare turnstile.  If you have the turnstile configure to check everything login attempt it will conflict with our plugin and make it difficult to login.  You can fix this by loggin into your wordpress server either through terminal or ftp and removing the plugin from the wordpress plugin folder located at "/var/www/html/wp-content/plugins/NostrLogin".  You can either delete it or move it out of the folder temporarily to get access restored to your site to change the turnstile settings or delete it completely you need to have the turnstile turned on for standard logins.
 The current work around is to turn off turnstile for standard login but keep it on for registrations. 
 Will try to make time and find a fix.
 
