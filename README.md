@@ -1,4 +1,4 @@
-t# Nostr Login
+Nostr Login
 
 Contributors: YEGHRO
 Tags: login, authentication, nostr, Bitcoin/lightning Network
