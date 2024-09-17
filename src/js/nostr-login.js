@@ -1,6 +1,7 @@
-import NDK, { NDKNip07Signer } from "@nostr-dev-kit/ndk";
-import { getPublicKey } from "nostr-tools/pure";
-import * as nip19 from "nostr-tools/nip19";
+import NDK from "@nostr-dev-kit/ndk";
+import { NDKNip07Signer } from "@nostr-dev-kit/ndk";
+import { generatePrivateKey, getPublicKey } from "@nostr-dev-kit/ndk";
+import { nip19 } from "@nostr-dev-kit/ndk";
 
 (function ($) {
   $(document).ready(function () {

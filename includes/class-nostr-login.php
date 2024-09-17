@@ -1,6 +1,9 @@
 <?php
 
-class Nostr_Login {
+// Include the file containing the debug log function
+require_once plugin_dir_path(__FILE__) . '../nostrLogin.php';
+
+class Nostr_Login_Handler {
     private static $field_added = false;
     private $default_relays = [
         "wss://purplepag.es",
@@ -29,11 +32,11 @@ class Nostr_Login {
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'register_settings'));
         
-        error_log("Nostr_Login class initialized");
+        nostr_login_debug_log("Nostr_Login_Handler class initialized");
     }
 
     public function add_admin_menu() {
-        add_options_page('Nostr Login Settings', 'Nostr Login', 'manage_options', 'nostr-login', array($this, 'options_page'));
+        add_options_page(__('Nostr Login Settings', 'nostr-login'), __('Nostr Login', 'nostr-login'), 'manage_options', 'nostr-login', array($this, 'options_page'));
     }
 
     public function register_settings() {
@@ -43,16 +46,16 @@ class Nostr_Login {
     public function options_page() {
         ?>
         <div class="wrap">
-            <h1>Nostr Login Settings</h1>
+            <h1><?php _e('Nostr Login Settings', 'nostr-login'); ?></h1>
             <form method="post" action="options.php">
                 <?php settings_fields('nostr_login_options'); ?>
                 <?php do_settings_sections('nostr_login_options'); ?>
                 <table class="form-table">
                     <tr valign="top">
-                        <th scope="row">Nostr Relays</th>
+                        <th scope="row"><?php _e('Nostr Relays', 'nostr-login'); ?></th>
                         <td>
                             <textarea name="nostr_login_relays" rows="5" cols="50"><?php echo esc_textarea(get_option('nostr_login_relays', implode("\n", $this->default_relays))); ?></textarea>
-                            <p class="description">Enter one relay URL per line.</p>
+                            <p class="description"><?php _e('Enter one relay URL per line.', 'nostr-login'); ?></p>
                         </td>
                     </tr>
                 </table>
@@ -69,17 +72,17 @@ class Nostr_Login {
     
         <table class="form-table">
             <tr>
-                <th><label for="nostr_public_key"><?php esc_html_e("Nostr Public Key"); ?></label></th>
+                <th><label for="nostr_public_key"><?php esc_html_e("Nostr Public Key", "nostr-login"); ?></label></th>
                 <td>
                     <input type="text" name="nostr_public_key" id="nostr_public_key" value="<?php echo esc_attr(get_user_meta($user->ID, 'nostr_public_key', true)); ?>" class="regular-text" readonly />
-                    <p class="description"><?php esc_html_e("Your Nostr public key."); ?></p>
+                    <p class="description"><?php esc_html_e("Your Nostr public key.", "nostr-login"); ?></p>
                 </td>
             </tr>
             <tr>
-                <th><label for="Nip05"><?php esc_html_e("Nostr Nip05"); ?></label></th>
+                <th><label for="nip05"><?php esc_html_e("Nostr Nip05", "nostr-login"); ?></label></th>
                 <td>
                     <input type="text" name="nip05" id="nip05" value="<?php echo esc_attr(get_user_meta($user->ID, 'nip05', true)); ?>" class="regular-text" readonly />
-                    <p class="description"><?php esc_html_e("You Nostr Nip05 address."); ?></p>
+                    <p class="description"><?php esc_html_e("Your Nostr Nip05 address.", "nostr-login"); ?></p>
                 </td>
             </tr>
 
@@ -110,20 +113,20 @@ class Nostr_Login {
     public function ajax_nostr_login() {
         check_ajax_referer('nostr-login-nonce', 'nonce');
     
-        error_log('Received metadata: ' . print_r($_POST['metadata'], true));
-    
         $public_key = isset($_POST['public_key']) ? sanitize_text_field($_POST['public_key']) : '';
-        $metadata_json = isset($_POST['metadata']) ? stripslashes($_POST['metadata']) : '';
+        $metadata_json = isset($_POST['metadata']) ? wp_kses_post(wp_unslash($_POST['metadata'])) : '';
     
         if (empty($public_key)) {
-            wp_send_json_error(array('message' => 'Public key is required.'));
+            nostr_login_debug_log('Public key is empty');
+            wp_send_json_error(array('message' => __('Public key is required.', 'nostr-login')));
         }
     
         // Decode the metadata JSON
         $metadata = json_decode($metadata_json, true);
     
         if (json_last_error() !== JSON_ERROR_NONE) {
-            wp_send_json_error(array('message' => 'Invalid metadata: ' . json_last_error_msg()));
+            nostr_login_debug_log('Invalid metadata JSON: ' . json_last_error_msg());
+            wp_send_json_error(array('message' => __('Invalid metadata:', 'nostr-login') . ' ' . json_last_error_msg()));
         }
     
         // Check if a user with this public key already exists
@@ -133,27 +136,32 @@ class Nostr_Login {
             // Create a new user if one doesn't exist
             $user_id = $this->create_new_user($public_key, $metadata);
             if (is_wp_error($user_id)) {
+                nostr_login_debug_log('Failed to create new user: ' . $user_id->get_error_message());
                 wp_send_json_error(array('message' => $user_id->get_error_message()));
             }
             $user = get_user_by('ID', $user_id);
+            nostr_login_debug_log('New user created with ID: ' . $user_id);
         } else {
             // Update existing user's metadata
             $this->update_user_metadata($user->ID, $metadata);
+            nostr_login_debug_log('Updated metadata for user ID: ' . $user->ID);
         }
     
         if ($user) {
             wp_set_current_user($user->ID);
             wp_set_auth_cookie($user->ID);
+            nostr_login_debug_log('User logged in successfully: ' . $user->ID);
             wp_send_json_success(array('redirect' => admin_url()));
         } else {
-            wp_send_json_error(array('message' => 'Login failed. Please try again.'));
+            nostr_login_debug_log('Login failed for public key: ' . $public_key);
+            wp_send_json_error(array('message' => __('Login failed. Please try again.', 'nostr-login')));
         }
     }    
      
     private function get_user_by_public_key($public_key) {
         $users = get_users(array(
             'meta_key' => 'nostr_public_key',
-            'meta_value' => $public_key,
+            'meta_value' => sanitize_text_field($public_key),
             'number' => 1,
             'count_total' => false
         ));
@@ -162,13 +170,13 @@ class Nostr_Login {
     }
     
     private function create_new_user($public_key, $metadata) {
-        $username = !empty($metadata['name']) ? $metadata['name'] : 'nostr_' . substr($public_key, 0, 8);
-        $email = !empty($metadata['email']) ? $metadata['email'] : $public_key . '@nostr.local';
+        $username = !empty($metadata['name']) ? sanitize_user($metadata['name']) : 'nostr_' . substr(sanitize_text_field($public_key), 0, 8);
+        $email = !empty($metadata['email']) ? sanitize_email($metadata['email']) : sanitize_text_field($public_key) . '@nostr.local';
     
         $user_id = wp_create_user($username, wp_generate_password(), $email);
     
         if (!is_wp_error($user_id)) {
-            update_user_meta($user_id, 'nostr_public_key', $public_key);
+            update_user_meta($user_id, 'nostr_public_key', sanitize_text_field($public_key));
             $this->update_user_metadata($user_id, $metadata);
         }
     
@@ -177,20 +185,20 @@ class Nostr_Login {
     
     private function update_user_metadata($user_id, $metadata) {
         if (!empty($metadata['name'])) {
-            wp_update_user(array('ID' => $user_id, 'display_name' => $metadata['name']));
+            wp_update_user(array('ID' => $user_id, 'display_name' => sanitize_text_field($metadata['name'])));
         }
         if (!empty($metadata['about'])) {
-            update_user_meta($user_id, 'description', $metadata['about']);
+            update_user_meta($user_id, 'description', sanitize_textarea_field($metadata['about']));
         }
         if (!empty($metadata['nip05'])) {
-            update_user_meta($user_id, 'nip05', $metadata['nip05']);
+            update_user_meta($user_id, 'nip05', sanitize_text_field($metadata['nip05']));
         }
 
         if (!empty($metadata['image'])) {
             $avatar_url = esc_url_raw($metadata['image']);
             update_user_meta($user_id, 'nostr_avatar', $avatar_url);
             $saved_avatar_url = get_user_meta($user_id, 'nostr_avatar', true);
-            error_log("Saved Nostr avatar URL for user $user_id: " . $saved_avatar_url);
+            nostr_login_debug_log("Saved Nostr avatar URL for user $user_id: " . esc_url($saved_avatar_url));
     
         }        
         if (!empty($metadata['website'])) {
@@ -221,17 +229,17 @@ class Nostr_Login {
         <div class="nostr-login-container">
             <label for="nostr_login_toggle" class="nostr-toggle-label">
                 <input type="checkbox" id="nostr_login_toggle">
-                <span>Use Nostr Login</span>
+                <span><?php esc_html_e('Use Nostr Login', 'nostr-login'); ?></span>
             </label>
             <?php wp_nonce_field('nostr_login_action', 'nostr_login_nonce'); ?>
         </div>
         <p class="nostr-login-field" style="display:none;">
-            <label for="nostr_private_key">Nostr Private Key</label>
-            <input type="password" name="nostr_private_key" id="nostr_private_key" class="input" size="20" autocapitalize="off" />
+            <label for="nostr_private_key"><?php esc_html_e('Nostr Private Key', 'nostr-login'); ?></label>
+            <input type="password" name="nostr_private_key" id="nostr_private_key" class="input" size="20" autocapitalize="off" autocomplete="new-password" />
         </p>
         <p class="nostr-login-buttons" style="display:none;">
-            <button type="button" id="use_nostr_extension" class="button">Use Nostr Extension</button>
-            <input type="submit" name="wp-submit" id="nostr-wp-submit" class="button button-primary" value="Log In with Nostr">
+            <button type="button" id="use_nostr_extension" class="button"><?php esc_html_e('Use Nostr Extension', 'nostr-login'); ?></button>
+            <input type="submit" name="wp-submit" id="nostr-wp-submit" class="button button-primary" value="<?php esc_attr_e('Log In with Nostr', 'nostr-login'); ?>">
         </p>
         <div id="nostr-login-feedback" style="display:none;"></div>
         <?php
@@ -247,4 +255,4 @@ class Nostr_Login {
         // We'll implement this method later
         wp_die();
     }
-}
+}   

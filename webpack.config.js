@@ -11,4 +11,8 @@ module.exports = {
   optimization: {
     minimizer: [new TerserPlugin()],
   },
+  resolve: {
+    extensions: ['.js', '.jsx', '.ts', '.tsx'],
+    modules: ['node_modules']
+  }
 };
