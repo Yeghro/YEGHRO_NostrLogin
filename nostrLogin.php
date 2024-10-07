@@ -1,12 +1,16 @@
 <?php
 /*
-Plugin Name: Nostr Login
-Description: Enables login and registration using Nostr keys
-Version: 1.0
-Author: Your Name
-Text Domain: nostr-login
-Domain Path: /languages
+Plugin Name: YEGHRO Nostr Login
+Plugin URI: https://github.com/Yeghro/YEGHRO_NostrLogin
+Description: A plugin that allows users to log in using Nostr.
+Version: 1.1
+Author: Your YEGHRO
+Author URI: https://YEGHRO.site/
+License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+Text Domain: YEGHROnostrLogin
 */
+
 
 if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly

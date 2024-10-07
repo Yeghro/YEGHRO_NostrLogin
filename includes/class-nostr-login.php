@@ -1,5 +1,7 @@
 <?php
-
+if ( ! defined( 'ABSPATH' ) ) {
+    exit; // Exit if accessed directly
+}
 // Include the file containing the debug log function
 require_once plugin_dir_path(__FILE__) . '../nostrLogin.php';
 
@@ -46,16 +48,16 @@ class Nostr_Login_Handler {
     public function options_page() {
         ?>
         <div class="wrap">
-            <h1><?php _e('Nostr Login Settings', 'nostr-login'); ?></h1>
+          <h1><?php esc_html_e('Nostr Login Settings', 'nostr-login'); ?></h1>
             <form method="post" action="options.php">
                 <?php settings_fields('nostr_login_options'); ?>
                 <?php do_settings_sections('nostr_login_options'); ?>
                 <table class="form-table">
                     <tr valign="top">
-                        <th scope="row"><?php _e('Nostr Relays', 'nostr-login'); ?></th>
+                        <th scope="row"><?php esc_html_e('Nostr Relays', 'nostr-login'); ?></th>
                         <td>
                             <textarea name="nostr_login_relays" rows="5" cols="50"><?php echo esc_textarea(get_option('nostr_login_relays', implode("\n", $this->default_relays))); ?></textarea>
-                            <p class="description"><?php _e('Enter one relay URL per line.', 'nostr-login'); ?></p>
+                            <p class="description"><?php esc_html_e('Enter one relay URL per line.', 'nostr-login'); ?></p>
                         </td>
                     </tr>
                 </table>
@@ -92,28 +94,34 @@ class Nostr_Login_Handler {
     }
 
     public function save_custom_user_profile_fields($user_id) {
-        if (!current_user_can('edit_user', $user_id)) {
+        // Verify nonce to prevent CSRF attacks
+        if ( ! isset( $_POST['nostr_login_nonce'] ) || ! wp_verify_nonce( wp_unslash( $_POST['nostr_login_nonce'] ), 'nostr_login_save_profile' ) ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+            // Nonce is invalid; stop processing
+            return;
+        }        
+    
+        // Check user permissions to ensure that only authorized users can edit
+        if ( ! current_user_can( 'edit_user', $user_id ) ) {
+            // User does not have permission; stop processing
             return false;
         }
     
-        // Save Nostr public key
-        if (isset($_POST['nostr_public_key'])) {
-            update_user_meta($user_id, 'nostr_public_key', sanitize_text_field($_POST['nostr_public_key']));
+        // Save Nostr public key securely
+        if ( isset( $_POST['nostr_public_key'] ) ) {
+            update_user_meta( $user_id, 'nostr_public_key', sanitize_text_field( wp_unslash( $_POST['nostr_public_key'] ) ) );
         }
-    
-        // Save Nip05
-        if (isset($_POST['nip05'])) {
-            update_user_meta($user_id, 'nip05', sanitize_text_field($_POST['nip05']));
-        }
-    
-        // Add any other custom fields you want to save here
-    }
 
+        // Save Nip05 securely
+        if ( isset( $_POST['nip05'] ) ) {
+            update_user_meta( $user_id, 'nip05', sanitize_text_field( wp_unslash( $_POST['nip05'] ) ) );
+        }
+    }
+    
 
     public function ajax_nostr_login() {
         check_ajax_referer('nostr-login-nonce', 'nonce');
     
-        $public_key = isset($_POST['public_key']) ? sanitize_text_field($_POST['public_key']) : '';
+        $public_key = isset( $_POST['public_key'] ) ? sanitize_text_field( wp_unslash( $_POST['public_key'] ) ) : '';
         $metadata_json = isset($_POST['metadata']) ? wp_kses_post(wp_unslash($_POST['metadata'])) : '';
     
         if (empty($public_key)) {
@@ -235,7 +243,7 @@ class Nostr_Login_Handler {
         </div>
         <p class="nostr-login-field" style="display:none;">
             <label for="nostr_private_key"><?php esc_html_e('Nostr Private Key', 'nostr-login'); ?></label>
-            <input type="password" name="nostr_private_key" id="nostr_private_key" class="input" size="20" autocapitalize="off" autocomplete="new-password" />
+            <input type="password" name="nostr_private_key" id="nostr_private_key" class="input" size="20" autocapitalize="off" />
         </p>
         <p class="nostr-login-buttons" style="display:none;">
             <button type="button" id="use_nostr_extension" class="button"><?php esc_html_e('Use Nostr Extension', 'nostr-login'); ?></button>
