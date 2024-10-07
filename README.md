@@ -64,6 +64,10 @@ Yes, the plugin adds Nostr login as an additional option without removing the tr
 
 ## Changelog
 
+##1.1
+* updated security and aligned the plugin more closely to wordpress guidelines.
+* only functional modifications were related to how users metadata are handled when fetching and storing. It's boring and you won't notice anything different really.
+
 ### 1.0
 * Initial release
 
