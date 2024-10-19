@@ -145,8 +145,8 @@ class Nostr_Login_Handler {
 
         // Sanitize input data
         $public_key    = isset( $_POST['public_key'] ) ? sanitize_text_field( wp_unslash( $_POST['public_key'] ) ) : '';
-        $metadata_json = isset( $_POST['metadata'] ) ? wp_unslash( $_POST['metadata'] ) : '';
-
+        $metadata_json = isset( $_POST['metadata'] ) ? sanitize_text_field( wp_unslash( $_POST['metadata'] ) ) : '';
+        
         if ( empty( $public_key ) ) {
             nostr_login_debug_log( 'Public key is empty' );
             wp_send_json_error( array( 'message' => __( 'Public key is required.', 'nostr-login' ) ) );

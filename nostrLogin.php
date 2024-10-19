@@ -8,7 +8,7 @@ Author: Your YEGHRO
 Author URI: https://YEGHRO.site/
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
-Text Domain: YEGHROnostrLogin
+Text Domain: YEGHRO_NostrLogin
 */
 
 
