@@ -12,7 +12,7 @@ Enable login and registration using Nostr keys for your WordPress site.
 
 == Description ==
 
-Nostr Login is a WordPress plugin that allows users to log in and register using their Nostr keys. This plugin integrates the decentralized Nostr protocol with WordPress, providing a seamless authentication experience for Nostr users.
+YEGHRO Nostr Login is a WordPress plugin that allows users to log in and register using their Nostr keys. This plugin integrates the decentralized Nostr protocol with WordPress, providing a seamless authentication experience for Nostr users.
 
 Key features:
 * Login using Nostr private key
