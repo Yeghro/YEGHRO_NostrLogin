@@ -1,27 +1,26 @@
-# Nostr Login
-
-Contributors: YEGHRO
-Tags: login, authentication, nostr, Bitcoin/lightning Network
+=== YEGHRO Nostr Login ===
+Contributors: yeghro
+Donate link: https://getalby.com/p/yeghro
+Tags: nostr, login, authentication, bitcoin, decentralized
 Requires at least: 5.0
-Tested up to: 6.5
-Stable tag: 1.2
+Tested up to: 6.6.2
+Stable tag: 1.3
 Requires PHP: 7.0
-License: GPLv2
-License URI: https://www.gnu.org/licenses/gpl-2.0.html
+License: GPLv2 or later
+License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
-Enable login and registration using Nostr keys for your WordPress site.
+Enable secure WordPress authentication using Nostr keys - login with your Nostr identity.
 
-## Description
+== Description ==
 
-Nostr Login is a WordPress plugin that allows users to log in and register using their Nostr keys. This plugin integrates the Nostr protocol with WordPress, providing a seamless authentication experience for users who prefer using their Nostr identities.
+YEGHRO Nostr Login enables WordPress users to authenticate using their Nostr keys, providing a seamless bridge between the decentralized Nostr protocol and WordPress websites.
 
-Key features:
-- Login using Nostr private key
-- Login using Nostr browser extension
-- Automatic user registration for new Nostr users
-- Profile information sync from Nostr metadata
-- Custom avatar support using Nostr profile picture
-- Admin settings for configuring Nostr relays
+= Key Features =
+
+* One-click login with Nostr browser extensions (NIP-07 compatible)
+* Automatic user registration for new Nostr users
+* Profile synchronization from Nostr metadata
+* Configurable Nostr relay settings
 
 ## Installation
 
