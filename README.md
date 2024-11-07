@@ -22,23 +22,22 @@ YEGHRO Nostr Login enables WordPress users to authenticate using their Nostr key
 * Profile synchronization from Nostr metadata
 * Configurable Nostr relay settings
 
-## Installation
 
-1. Upload the `nostr-login` folder to the `/wp-content/plugins/` directory
-2. Activate the plugin through the 'Plugins' menu in WordPress
-3. Configure the plugin settings under 'Settings' > 'Nostr Login'
+== Installation ==
 
-## Frequently Asked Questions
+1. Upload `nostr-login` to the `/wp-content/plugins/` directory
+2. Activate the plugin through the 'Plugins' menu
+3. Go to Settings > Nostr Login to configure relay settings
 
-### What is Nostr?
+== Frequently Asked Questions ==
 
-Nostr (Notes and Other Stuff Transmitted by Relays) is a decentralized protocol that enables global, censorship-resistant social media.
+= What is Nostr? =
+Nostr is a decentralized protocol enabling censorship-resistant social networking and authentication.
 
-### Is it safe to use my Nostr private key to log in?
+= Is it safe to use my Nostr keys? =
+We recommend using a NIP-07 compatible browser extension like Alby or nos2x for the safest experience.
 
-While the plugin is designed with security in mind, it's generally recommended to use a Nostr-compatible browser extension for the most secure experience. The plugin supports this method of authentication.
-
-### Can I use this plugin alongside traditional WordPress login?
+== Can I use this plugin alongside traditional WordPress login? ==
 
 Yes, the plugin adds Nostr login as an additional option without removing the traditional WordPress login method.
 
@@ -61,19 +60,23 @@ Yes, the plugin adds Nostr login as an additional option without removing the tr
 
 
 
-## Changelog
 
-##1.1
-* updated security and aligned the plugin more closely to wordpress guidelines.
-* only functional modifications were related to how users metadata are handled when fetching and storing. It's boring and you won't notice anything different really.
+== Changelog ==
 
-### 1.0
+= 1.3 =
+* Added option for existing Wordpress users to connect/sync their Nostr accounts from within profile page
+
+
+= 1.2 =
+* Enhanced profile synchronization
+* Improved relay configuration options
+* Bug fixes and performance improvements
+
+
+= 1.0 =
 * Initial release
-
-## Upgrade Notice
-
-### 1.0
-Initial release of the Nostr Login plugin.
+* Automatic user registration
+* Basic profile sync features
 
 ## Additional Information
 
