@@ -42,7 +42,21 @@ class Nostr_Login_Handler {
     }
 
     public function register_settings() {
+        register_setting(
+            'nostr_login_options',
+            'nostr_login_redirect',
+            array(
+                'type' => 'string',
+                'sanitize_callback' => array($this, 'sanitize_redirect_setting'),
+                'default' => 'admin'
+            )
+        );
         register_setting( 'nostr_login_options', 'nostr_login_relays' );
+    }
+
+    public function sanitize_redirect_setting($value) {
+        $allowed_values = array('admin', 'home', 'profile');
+        return in_array($value, $allowed_values) ? $value : 'admin';
     }
 
     public function options_page() {
@@ -58,6 +72,22 @@ class Nostr_Login_Handler {
                         <td>
                             <textarea name="nostr_login_relays" rows="5" cols="50"><?php echo esc_textarea( get_option( 'nostr_login_relays', implode( "\n", $this->default_relays ) ) ); ?></textarea>
                             <p class="description"><?php esc_html_e( 'Enter one relay URL per line.', 'nostr-login' ); ?></p>
+                        </td>
+                    </tr>
+                    <tr valign="top">
+                        <th scope="row"><?php esc_html_e( 'Redirect After Login', 'nostr-login' ); ?></th>
+                        <td>
+                            <select name="nostr_login_redirect">
+                                <option value="admin" <?php selected( get_option( 'nostr_login_redirect', 'admin' ), 'admin' ); ?>>
+                                    <?php esc_html_e( 'Admin Dashboard', 'nostr-login' ); ?>
+                                </option>
+                                <option value="home" <?php selected( get_option( 'nostr_login_redirect', 'admin' ), 'home' ); ?>>
+                                    <?php esc_html_e( 'Home Page', 'nostr-login' ); ?>
+                                </option>
+                                <option value="profile" <?php selected( get_option( 'nostr_login_redirect', 'admin' ), 'profile' ); ?>>
+                                    <?php esc_html_e( 'User Profile', 'nostr-login' ); ?>
+                                </option>
+                            </select>
                         </td>
                     </tr>
                 </table>
@@ -239,7 +269,13 @@ class Nostr_Login_Handler {
             wp_set_current_user( $user->ID );
             wp_set_auth_cookie( $user->ID );
             nostr_login_debug_log( 'User logged in successfully: ' . $user->ID );
-            wp_send_json_success( array( 'redirect' => admin_url() ) );
+            $redirect_type = get_option('nostr_login_redirect', 'admin');
+            $redirect_url = match($redirect_type) {
+                'home' => home_url(),
+                'profile' => get_edit_profile_url($user->ID),
+                default => admin_url()
+            };
+            wp_send_json_success(array('redirect' => $redirect_url));
         } else {
             nostr_login_debug_log( 'Login failed for public key: ' . $public_key );
             wp_send_json_error( array( 'message' => __( 'Login failed. Please try again.', 'nostr-login' ) ) );

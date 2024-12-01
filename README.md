@@ -63,15 +63,16 @@ Yes, the plugin adds Nostr login as an additional option without removing the tr
 
 == Changelog ==
 
+= 1.4 =
+* Added option to redirect users after login (to admin, home or profile page)
+
 = 1.3 =
 * Added option for existing Wordpress users to connect/sync their Nostr accounts from within profile page
-
 
 = 1.2 =
 * Enhanced profile synchronization
 * Improved relay configuration options
 * Bug fixes and performance improvements
-
 
 = 1.0 =
 * Initial release
