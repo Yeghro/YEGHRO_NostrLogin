@@ -31,6 +31,8 @@ class Nostr_Login_Handler {
         add_action( 'edit_user_profile_update', array( $this, 'save_custom_user_profile_fields' ) );
         add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
         add_action( 'admin_init', array( $this, 'register_settings' ) );
+        add_action( 'wp_ajax_nostr_sync_profile', array( $this, 'ajax_nostr_sync_profile' ) );
+        add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
 
         nostr_login_debug_log( "Nostr_Login_Handler class initialized" );
     }
@@ -40,7 +42,21 @@ class Nostr_Login_Handler {
     }
 
     public function register_settings() {
+        register_setting(
+            'nostr_login_options',
+            'nostr_login_redirect',
+            array(
+                'type' => 'string',
+                'sanitize_callback' => array($this, 'sanitize_redirect_setting'),
+                'default' => 'admin'
+            )
+        );
         register_setting( 'nostr_login_options', 'nostr_login_relays' );
+    }
+
+    public function sanitize_redirect_setting($value) {
+        $allowed_values = array('admin', 'home', 'profile');
+        return in_array($value, $allowed_values) ? $value : 'admin';
     }
 
     public function options_page() {
@@ -58,6 +74,22 @@ class Nostr_Login_Handler {
                             <p class="description"><?php esc_html_e( 'Enter one relay URL per line.', 'nostr-login' ); ?></p>
                         </td>
                     </tr>
+                    <tr valign="top">
+                        <th scope="row"><?php esc_html_e( 'Redirect After Login', 'nostr-login' ); ?></th>
+                        <td>
+                            <select name="nostr_login_redirect">
+                                <option value="admin" <?php selected( get_option( 'nostr_login_redirect', 'admin' ), 'admin' ); ?>>
+                                    <?php esc_html_e( 'Admin Dashboard', 'nostr-login' ); ?>
+                                </option>
+                                <option value="home" <?php selected( get_option( 'nostr_login_redirect', 'admin' ), 'home' ); ?>>
+                                    <?php esc_html_e( 'Home Page', 'nostr-login' ); ?>
+                                </option>
+                                <option value="profile" <?php selected( get_option( 'nostr_login_redirect', 'admin' ), 'profile' ); ?>>
+                                    <?php esc_html_e( 'User Profile', 'nostr-login' ); ?>
+                                </option>
+                            </select>
+                        </td>
+                    </tr>
                 </table>
                 <?php submit_button(); ?>
             </form>
@@ -68,22 +100,43 @@ class Nostr_Login_Handler {
     public function add_custom_user_profile_fields( $user ) {
         ?>
         <h3><?php esc_html_e( "Nostr Information", "nostr-login" ); ?></h3>
-
-        <?php wp_nonce_field( 'nostr_login_save_profile', 'nostr_login_nonce' ); ?>
+        <?php wp_nonce_field('nostr_login_save_profile', 'nostr_login_nonce'); ?>
 
         <table class="form-table">
             <tr>
-                <th><label for="nostr_public_key"><?php esc_html_e( "Nostr Public Key", "nostr-login" ); ?></label></th>
+                <th><label><?php esc_html_e("Connect Nostr Account", "nostr-login"); ?></label></th>
                 <td>
-                    <input type="text" name="nostr_public_key" id="nostr_public_key" value="<?php echo esc_attr( get_user_meta( $user->ID, 'nostr_public_key', true ) ); ?>" class="regular-text" readonly />
-                    <p class="description"><?php esc_html_e( "Your Nostr public key.", "nostr-login" ); ?></p>
+                    <?php if (!get_user_meta($user->ID, 'nostr_public_key', true)): ?>
+                        <button type="button" id="nostr-connect-extension" class="button">
+                            <?php esc_html_e("Sync with Nostr Extension", "nostr-login"); ?>
+                        </button>
+                        <p class="description">
+                            <?php esc_html_e("Connect your Nostr account to sync your public key, NIP-05, and avatar", "nostr-login"); ?>
+                        </p>
+                    <?php else: ?>
+                        <button type="button" id="nostr-resync-extension" class="button">
+                            <?php esc_html_e("Resync Nostr Data", "nostr-login"); ?>
+                        </button>
+                    <?php endif; ?>
+                    <div id="nostr-connect-feedback" style="display:none; margin-top:10px;"></div>
+                </td>
+            </tr>
+            
+            <!-- Existing fields as read-only -->
+            <tr>
+                <th><label><?php esc_html_e("Nostr Public Key", "nostr-login"); ?></label></th>
+                <td>
+                    <input type="text" id="nostr_public_key" 
+                           value="<?php echo esc_attr(get_user_meta($user->ID, 'nostr_public_key', true)); ?>" 
+                           class="regular-text" readonly />
                 </td>
             </tr>
             <tr>
-                <th><label for="nip05"><?php esc_html_e( "Nostr Nip05", "nostr-login" ); ?></label></th>
+                <th><label><?php esc_html_e("Nostr NIP-05", "nostr-login"); ?></label></th>
                 <td>
-                    <input type="text" name="nip05" id="nip05" value="<?php echo esc_attr( get_user_meta( $user->ID, 'nip05', true ) ); ?>" class="regular-text" readonly />
-                    <p class="description"><?php esc_html_e( "Your Nostr Nip05 address.", "nostr-login" ); ?></p>
+                    <input type="text" id="nip05" 
+                           value="<?php echo esc_attr(get_user_meta($user->ID, 'nip05', true)); ?>" 
+                           class="regular-text" readonly />
                 </td>
             </tr>
             <!-- Add more custom fields here -->
@@ -216,7 +269,13 @@ class Nostr_Login_Handler {
             wp_set_current_user( $user->ID );
             wp_set_auth_cookie( $user->ID );
             nostr_login_debug_log( 'User logged in successfully: ' . $user->ID );
-            wp_send_json_success( array( 'redirect' => admin_url() ) );
+            $redirect_type = get_option('nostr_login_redirect', 'admin');
+            $redirect_url = match($redirect_type) {
+                'home' => home_url(),
+                'profile' => get_edit_profile_url($user->ID),
+                default => admin_url()
+            };
+            wp_send_json_success(array('redirect' => $redirect_url));
         } else {
             nostr_login_debug_log( 'Login failed for public key: ' . $public_key );
             wp_send_json_error( array( 'message' => __( 'Login failed. Please try again.', 'nostr-login' ) ) );
@@ -283,19 +342,39 @@ class Nostr_Login_Handler {
         // Add more metadata fields as needed
     }
 
-    public function enqueue_scripts() {
-        wp_enqueue_script( 'nostr-login', plugin_dir_url( dirname( __FILE__ ) ) . 'assets/js/nostr-login.min.js', array( 'jquery' ), '1.0', true );
+    public function enqueue_scripts($hook = '') {
+        // Check if we're on the login page
+        if (in_array($GLOBALS['pagenow'], array('wp-login.php')) || did_action('login_enqueue_scripts')) {
+            wp_enqueue_script('nostr-login', plugin_dir_url(dirname(__FILE__)) . 'assets/js/nostr-login.min.js', array('jquery'), '1.0', true);
+            
+            // Sanitize relay URLs
+            $relays_option = get_option('nostr_login_relays', implode("\n", $this->default_relays));
+            $relays_array = explode("\n", $relays_option);
+            $relays = array_filter(array_map('esc_url', array_map('trim', $relays_array)));
 
-        // Sanitize relay URLs
-        $relays_option = get_option( 'nostr_login_relays', implode( "\n", $this->default_relays ) );
-        $relays_array  = explode( "\n", $relays_option );
-        $relays        = array_filter( array_map( 'esc_url', array_map( 'trim', $relays_array ) ) );
+            wp_localize_script('nostr-login', 'nostr_login_ajax', array(
+                'ajax_url' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('nostr-login-nonce'),
+                'relays' => $relays,
+            ));
+        }
+        
+        // For profile page
+        if (in_array($hook, array('profile.php', 'user-edit.php'))) {
+            wp_enqueue_script('nostr-login', plugin_dir_url(dirname(__FILE__)) . 'assets/js/nostr-login.min.js', array('jquery'), '1.0', true);
+            
+            wp_localize_script('nostr-login', 'nostr_login_ajax', array(
+                'ajax_url' => admin_url('admin-ajax.php'),
+                'nonce' => wp_create_nonce('nostr-login-nonce'),
+                'relays' => $this->get_relay_urls()
+            ));
+        }
+    }
 
-        wp_localize_script( 'nostr-login', 'nostr_login_ajax', array(
-            'ajax_url' => admin_url( 'admin-ajax.php' ),
-            'nonce'    => wp_create_nonce( 'nostr-login-nonce' ),
-            'relays'   => $relays,
-        ) );
+    private function get_relay_urls() {
+        $relays_option = get_option('nostr_login_relays', implode("\n", $this->default_relays));
+        $relays_array = explode("\n", $relays_option);
+        return array_filter(array_map('esc_url', array_map('trim', $relays_array)));
     }
 
     public function add_nostr_login_field() {
@@ -332,5 +411,64 @@ class Nostr_Login_Handler {
     public function ajax_nostr_register() {
         // We'll implement this method later
         wp_die();
+    }
+
+    public function ajax_nostr_sync_profile() {
+        try {
+            if (!check_ajax_referer('nostr-login-nonce', 'nonce', false)) {
+                throw new Exception(__('Security check failed.', 'nostr-login'));
+            }
+
+            if (!is_user_logged_in()) {
+                throw new Exception(__('You must be logged in.', 'nostr-login'));
+            }
+
+            $user_id = get_current_user_id();
+            if (!current_user_can('edit_user', $user_id)) {
+                throw new Exception(__('You do not have permission to perform this action.', 'nostr-login'));
+            }
+
+            // Validate and sanitize metadata input
+            if (!isset($_POST['metadata']) || empty($_POST['metadata'])) {
+                throw new Exception(__('No metadata provided.', 'nostr-login'));
+            }
+
+            // Sanitize the JSON string before decoding
+            $raw_metadata = sanitize_text_field(wp_unslash($_POST['metadata']));
+            $metadata = json_decode($raw_metadata, true);
+            
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                throw new Exception(__('Invalid metadata format.', 'nostr-login'));
+            }
+
+            // Validate public key
+            if (empty($metadata['public_key']) || !$this->is_valid_public_key($metadata['public_key'])) {
+                throw new Exception(__('Invalid public key.', 'nostr-login'));
+            }
+
+            // Check for existing public key
+            $existing_user = $this->get_user_by_public_key($metadata['public_key']);
+            if ($existing_user && $existing_user->ID !== $user_id) {
+                throw new Exception(__('This Nostr account is already linked to another user.', 'nostr-login'));
+            }
+
+            // Update Nostr-specific data
+            update_user_meta($user_id, 'nostr_public_key', sanitize_text_field($metadata['public_key']));
+            
+            if (!empty($metadata['nip05'])) {
+                update_user_meta($user_id, 'nip05', sanitize_text_field($metadata['nip05']));
+            }
+            
+            if (!empty($metadata['image'])) {
+                $avatar_url = esc_url_raw($metadata['image']);
+                update_user_meta($user_id, 'nostr_avatar', $avatar_url);
+                nostr_login_debug_log("Updated avatar for user $user_id: $avatar_url");
+            }
+
+            wp_send_json_success(array('message' => __('Nostr data successfully synced!', 'nostr-login')));
+            
+        } catch (Exception $e) {
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
     }
 }
