@@ -1,7 +1,7 @@
 import NDK from "@nostr-dev-kit/ndk";
 import { NDKNip07Signer } from "@nostr-dev-kit/ndk";
-import { getPublicKey } from "nostr-tools/pure";
-import { nip19 } from "nostr-tools"; 
+import { getPublicKey, finalizeEvent } from "nostr-tools/pure";
+import { nip19, nip98 } from "nostr-tools";
 
 (function ($) {
   $(document).ready(function () {
@@ -247,13 +247,24 @@ import { nip19 } from "nostr-tools";
         const metadata = user.profile || {};
         // console.log("stored user metadata:", metadata);
 
+        // Create signed authtoken event
+        try {
+          const _sign = (privateKey) ? (e) => finalizeEvent(e, privateKey) : (e) => window.nostr.signEvent(e);
+          var authToken = await nip98.getToken(nostr_login_ajax.ajax_url, 'post', _sign);
+          // console.log("authtoken:", authToken);
+        } catch (error) {
+          console.error("Failed to create authtoken:", error);
+          alert("Failed to create authtoken.");
+          return;
+        }
+
         // Send login request to WordPress
         $.ajax({
           url: nostr_login_ajax.ajax_url,
           type: "POST",
           data: {
             action: "nostr_login",
-            public_key: publicKey,
+            authtoken: authToken,
             metadata: JSON.stringify(metadata),
             nonce: nostr_login_ajax.nonce,
           },
@@ -278,7 +289,7 @@ import { nip19 } from "nostr-tools";
         e.preventDefault();
         const $feedback = $('#nostr-connect-feedback');
         const $button = $(e.target);
-        
+
         try {
             // Disable button and show loading state
             $button.prop('disabled', true);
@@ -292,7 +303,7 @@ import { nip19 } from "nostr-tools";
 
             const nip07Signer = new NDKNip07Signer();
             const user = await nip07Signer.user();
-            
+
             if (!user || !user.pubkey) {
                 throw new Error('Failed to get public key from extension.');
             }
@@ -315,16 +326,16 @@ import { nip19 } from "nostr-tools";
             // Create NDK user and fetch profile with explicit error handling
             const ndkUser = ndk.getUser({ pubkey: user.pubkey });
             ndkUser.signer = nip07Signer;
-            
+
             try {
                 // Set a timeout for profile fetching
                 const profilePromise = ndkUser.fetchProfile();
-                const timeoutPromise = new Promise((_, reject) => 
+                const timeoutPromise = new Promise((_, reject) =>
                     setTimeout(() => reject(new Error('Profile fetch timeout')), 15000)
                 );
-                
+
                 await Promise.race([profilePromise, timeoutPromise]);
-                
+
                 if (!ndkUser.profile) {
                     console.warn('No profile data found, proceeding with public key only');
                 }
@@ -358,11 +369,11 @@ import { nip19 } from "nostr-tools";
             if (response.success) {
                 $feedback.removeClass('notice-info').addClass('notice-success')
                     .html('Successfully synced Nostr data!');
-                
+
                 // Update displayed values
                 $('#nostr-public-key').val(metadata.public_key);
                 $('#nostr-nip05').val(metadata.nip05);
-                
+
                 // Refresh page if avatar updated
                 if (metadata.image) {
                     setTimeout(() => location.reload(), 1500);
@@ -382,14 +393,14 @@ import { nip19 } from "nostr-tools";
     // Add event listener
     $(document).ready(function() {
         console.log('Nostr login script loaded'); // Debug log
-        
+
         const $connectButton = $('#nostr-connect-extension');
         const $resyncButton = $('#nostr-resync-extension');
-        
+
         if ($connectButton.length || $resyncButton.length) {
             console.log('Found Nostr connect/resync buttons'); // Debug log
         }
-        
+
         $('#nostr-connect-extension, #nostr-resync-extension').on('click', function(e) {
             console.log('Nostr sync button clicked'); // Debug log
             handleNostrSync(e);

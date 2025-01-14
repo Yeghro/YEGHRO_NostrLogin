@@ -16,6 +16,12 @@ if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
 }
 
+// * Try to load the Composer if it exists.
+$composer_autoloader = __DIR__.'/vendor/autoload.php';
+if (is_readable($composer_autoloader)) {
+    require $composer_autoloader;
+}
+
 // Include necessary files
 require_once plugin_dir_path(__FILE__) . 'includes/class-nostr-login.php';
 
