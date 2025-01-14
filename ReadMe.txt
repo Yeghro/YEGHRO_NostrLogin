@@ -30,6 +30,9 @@ YEGHRO Nostr Login enables WordPress users to authenticate using their Nostr key
 
 == Changelog ==
 
+= 1.5 =
+* Added more robust authentication flow using nip98 for better
+
 = 1.4 =
 * Added option to redirect users after login (to admin, home or profile page)
 
