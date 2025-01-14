@@ -15,12 +15,7 @@ import { nip19, nip98 } from "nostr-tools";
         "wss://relay.nostr.band",
         "wss://relay.primal.net",
         "wss://relay.damus.io",
-        "wss://nostr.wine",
-        "wss://relay.snort.social",
-        "wss://eden.nostr.land",
-        "wss://nostr.bitcoiner.social",
-        "wss://nostrpub.yeghro.site",
-
+        "wss://nostr.wine"
         // Add more relay URLs as needed
       ],
     });
@@ -198,24 +193,25 @@ import { nip19, nip98 } from "nostr-tools";
         if (!publicKey) {
           publicKey = getPublicKey(privateKey);
         }
-        // console.log("user pubkey:", publicKey);
 
         // Connect to relays with timeout
-        const connectPromise = ndk.connect();
-        const connectTimeout = new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Connection to relays timed out")),
-            TIMEOUT_DURATION
-          )
-        );
+        if (!ndk.connected) {
+          const connectPromise = ndk.connect();
+          const connectTimeout = new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("Connection to relays timed out")),
+              TIMEOUT_DURATION
+            )
+          );
 
-        try {
-          await Promise.race([connectPromise, connectTimeout]);
-          // console.log("connected to relays", ndk);
-        } catch (error) {
-          // console.error("Failed to connect to relays:", error);
-          alert("Failed to connect to Nostr relays. Please try again later.");
-          return;
+          try {
+            await Promise.race([connectPromise, connectTimeout]);
+            // console.log("connected to relays", ndk);
+          } catch (error) {
+            // console.error("Failed to connect to relays:", error);
+            alert("Failed to connect to Nostr relays. Please try again later.");
+            return;
+          }
         }
 
         // Create user object with the public key and signer if available
@@ -223,24 +219,26 @@ import { nip19, nip98 } from "nostr-tools";
         if (signer) {
           user.signer = signer;
         }
-        // console.log("set user:", user);
 
-        // Fetch user profile with timeout
-        const fetchProfilePromise = user.fetchProfile();
-        const fetchProfileTimeout = new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Fetching user profile timed out")),
-            TIMEOUT_DURATION
-          )
-        );
-
-        try {
-          await Promise.race([fetchProfilePromise, fetchProfileTimeout]);
-        } catch (error) {
-          // console.error("Failed to fetch user profile:", error);
-          alert(
-            "Failed to fetch user profile from Nostr. Proceeding with login using available information."
+        // Only fetch profile after ensuring relay connection
+        if (ndk.connected) {
+          // Fetch user profile with timeout
+          const fetchProfilePromise = user.fetchProfile();
+          const fetchProfileTimeout = new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("Fetching user profile timed out")),
+              TIMEOUT_DURATION
+            )
           );
+
+          try {
+            await Promise.race([fetchProfilePromise, fetchProfileTimeout]);
+          } catch (error) {
+            // console.error("Failed to fetch user profile:", error);
+            alert(
+              "Failed to fetch user profile from Nostr. Proceeding with login using available information."
+            );
+          }
         }
 
         // Get user metadata
