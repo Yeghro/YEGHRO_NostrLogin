@@ -14,11 +14,7 @@ class Nostr_Login_Handler {
         "wss://relay.nostr.band",
         "wss://relay.primal.net",
         "wss://relay.damus.io",
-        "wss://nostr.wine",
-        "wss://relay.snort.social",
-        "wss://eden.nostr.land",
-        "wss://nostr.bitcoiner.social",
-        "wss://nostrpub.yeghro.site",
+
     ];
 
     public function init() {
