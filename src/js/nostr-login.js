@@ -390,19 +390,17 @@ import { nip19, nip98 } from "nostr-tools";
 
     // Add event listener
     $(document).ready(function() {
-        console.log('Nostr login script loaded'); // Debug log
+        console.log('Nostr login script loaded');
 
         const $connectButton = $('#nostr-connect-extension');
         const $resyncButton = $('#nostr-resync-extension');
 
         if ($connectButton.length || $resyncButton.length) {
-            console.log('Found Nostr connect/resync buttons'); // Debug log
+            console.log('Found Nostr connect/resync buttons');
+            
+            // Attach event handlers to buttons
+            $('#nostr-connect-extension, #nostr-resync-extension').on('click', handleNostrSync);
         }
-
-        $('#nostr-connect-extension, #nostr-resync-extension').on('click', function(e) {
-            console.log('Nostr sync button clicked'); // Debug log
-            handleNostrSync(e);
-        });
     });
   });
 })(jQuery);
