@@ -40,16 +40,9 @@ function nostr_login_use_avatar_url($url, $id_or_email, $args) {
 
     if ($user && is_object($user)) {
         $nostr_avatar = get_user_meta($user->ID, 'nostr_avatar', true);
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log("Attempting to use Nostr avatar for user {$user->ID}: " . $nostr_avatar);
-        }
         if ($nostr_avatar) {
             return $nostr_avatar;
         }
-    }
-
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log("Using default avatar URL: " . $url);
     }
     return $url;
 }
@@ -60,10 +53,3 @@ function nostr_login_load_textdomain() {
     load_plugin_textdomain('nostr-login', false, dirname(plugin_basename(__FILE__)) . '/languages');
 }
 add_action('plugins_loaded', 'nostr_login_load_textdomain');
-
-// Add a debug logging function
-function nostr_login_debug_log($message) {
-    if (defined('WP_DEBUG') && WP_DEBUG) {
-        error_log('Nostr Login: ' . $message);
-    }
-}

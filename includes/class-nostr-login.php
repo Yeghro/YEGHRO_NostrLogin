@@ -28,8 +28,6 @@ class Nostr_Login_Handler {
         add_action( 'admin_init', array( $this, 'register_settings' ) );
         add_action( 'wp_ajax_nostr_sync_profile', array( $this, 'ajax_nostr_sync_profile' ) );
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
-
-        nostr_login_debug_log( "Nostr_Login_Handler class initialized" );
     }
 
     public function add_admin_menu() {
@@ -196,13 +194,11 @@ class Nostr_Login_Handler {
         $metadata_json = isset( $_POST['metadata'] ) ? sanitize_text_field( wp_unslash( $_POST['metadata'] ) ) : '';
         
         if ( empty( $public_key ) ) {
-            nostr_login_debug_log( 'Public key is empty' );
             wp_send_json_error( array( 'message' => __( 'Public key is required.', 'nostr-login' ) ) );
         }
 
         // Validate public key format
         if ( ! $this->is_valid_public_key( $public_key ) ) {
-            nostr_login_debug_log( 'Invalid public key format' );
             wp_send_json_error( array( 'message' => __( 'Invalid public key format.', 'nostr-login' ) ) );
         }
 
@@ -210,7 +206,6 @@ class Nostr_Login_Handler {
         $metadata = json_decode( $metadata_json, true );
 
         if ( json_last_error() !== JSON_ERROR_NONE ) {
-            nostr_login_debug_log( 'Invalid metadata JSON: ' . json_last_error_msg() );
             wp_send_json_error( array( 'message' => __( 'Invalid metadata: ', 'nostr-login' ) . json_last_error_msg() ) );
         }
 
@@ -249,21 +244,17 @@ class Nostr_Login_Handler {
             // Create a new user if one doesn't exist
             $user_id = $this->create_new_user( $public_key, $sanitized_metadata );
             if ( is_wp_error( $user_id ) ) {
-                nostr_login_debug_log( 'Failed to create new user: ' . $user_id->get_error_message() );
                 wp_send_json_error( array( 'message' => $user_id->get_error_message() ) );
             }
             $user = get_user_by( 'ID', $user_id );
-            nostr_login_debug_log( 'New user created with ID: ' . $user_id );
         } else {
             // Update existing user's metadata
             $this->update_user_metadata( $user->ID, $sanitized_metadata );
-            nostr_login_debug_log( 'Updated metadata for user ID: ' . $user->ID );
         }
 
         if ( $user ) {
             wp_set_current_user( $user->ID );
             wp_set_auth_cookie( $user->ID );
-            nostr_login_debug_log( 'User logged in successfully: ' . $user->ID );
             $redirect_type = get_option('nostr_login_redirect', 'admin');
             $redirect_url = match($redirect_type) {
                 'home' => home_url(),
@@ -272,7 +263,6 @@ class Nostr_Login_Handler {
             };
             wp_send_json_success(array('redirect' => $redirect_url));
         } else {
-            nostr_login_debug_log( 'Login failed for public key: ' . $public_key );
             wp_send_json_error( array( 'message' => __( 'Login failed. Please try again.', 'nostr-login' ) ) );
         }
     }
@@ -326,7 +316,6 @@ class Nostr_Login_Handler {
             $avatar_url = esc_url_raw( $sanitized_metadata['image'] );
             update_user_meta( $user_id, 'nostr_avatar', $avatar_url );
             $saved_avatar_url = get_user_meta( $user_id, 'nostr_avatar', true );
-            nostr_login_debug_log( "Saved Nostr avatar URL for user $user_id: " . esc_url( $saved_avatar_url ) );
         }
         if ( ! empty( $sanitized_metadata['website'] ) ) {
             wp_update_user( array(
@@ -457,7 +446,6 @@ class Nostr_Login_Handler {
             if (!empty($metadata['image'])) {
                 $avatar_url = esc_url_raw($metadata['image']);
                 update_user_meta($user_id, 'nostr_avatar', $avatar_url);
-                nostr_login_debug_log("Updated avatar for user $user_id: $avatar_url");
             }
 
             wp_send_json_success(array('message' => __('Nostr data successfully synced!', 'nostr-login')));
