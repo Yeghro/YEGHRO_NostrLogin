@@ -17,6 +17,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Include necessary files
+require_once plugin_dir_path(__FILE__) . 'includes/class-nostr-event.php';
 require_once plugin_dir_path(__FILE__) . 'includes/class-nostr-login.php';
 
 function nostr_login_plugin_init() {

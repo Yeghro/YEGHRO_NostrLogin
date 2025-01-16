@@ -1,7 +1,7 @@
 import NDK from "@nostr-dev-kit/ndk";
 import { NDKNip07Signer } from "@nostr-dev-kit/ndk";
-import { getPublicKey } from "nostr-tools/pure";
-import { nip19 } from "nostr-tools"; 
+import { getPublicKey, finalizeEvent, verifyEvent } from "nostr-tools/pure";
+import { nip19, nip98 } from "nostr-tools";
 
 (function ($) {
   $(document).ready(function () {
@@ -15,12 +15,6 @@ import { nip19 } from "nostr-tools";
         "wss://relay.nostr.band",
         "wss://relay.primal.net",
         "wss://relay.damus.io",
-        "wss://nostr.wine",
-        "wss://relay.snort.social",
-        "wss://eden.nostr.land",
-        "wss://nostr.bitcoiner.social",
-        "wss://nostrpub.yeghro.site",
-
         // Add more relay URLs as needed
       ],
     });
@@ -198,7 +192,6 @@ import { nip19 } from "nostr-tools";
         if (!publicKey) {
           publicKey = getPublicKey(privateKey);
         }
-        // console.log("user pubkey:", publicKey);
 
         // Connect to relays with timeout
         const connectPromise = ndk.connect();
@@ -211,65 +204,63 @@ import { nip19 } from "nostr-tools";
 
         try {
           await Promise.race([connectPromise, connectTimeout]);
-          // console.log("connected to relays", ndk);
         } catch (error) {
-          // console.error("Failed to connect to relays:", error);
           alert("Failed to connect to Nostr relays. Please try again later.");
           return;
         }
 
-        // Create user object with the public key and signer if available
+        // Create user object and fetch profile
         let user = ndk.getUser({ pubkey: publicKey });
         if (signer) {
           user.signer = signer;
         }
-        // console.log("set user:", user);
 
-        // Fetch user profile with timeout
-        const fetchProfilePromise = user.fetchProfile();
-        const fetchProfileTimeout = new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Fetching user profile timed out")),
-            TIMEOUT_DURATION
-          )
-        );
-
+        // Fetch profile with timeout
         try {
-          await Promise.race([fetchProfilePromise, fetchProfileTimeout]);
+          await Promise.race([
+            user.fetchProfile(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Profile fetch timeout")), TIMEOUT_DURATION))
+          ]);
         } catch (error) {
-          // console.error("Failed to fetch user profile:", error);
-          alert(
-            "Failed to fetch user profile from Nostr. Proceeding with login using available information."
-          );
+          console.warn("Failed to fetch user profile:", error);
         }
 
-        // Get user metadata
         const metadata = user.profile || {};
-        // console.log("stored user metadata:", metadata);
 
-        // Send login request to WordPress
+        // Generate NIP-98 auth token using nostr-tools
+        const authToken = await nip98.getToken(
+          nostr_login_ajax.ajax_url,
+          'POST',
+          privateKey ? 
+            (event) => finalizeEvent(event, privateKey) : 
+            (event) => window.nostr.signEvent(event)
+        );
+
+        // Send login request
         $.ajax({
           url: nostr_login_ajax.ajax_url,
-          type: "POST",
+          type: 'POST',
           data: {
-            action: "nostr_login",
+            action: 'nostr_login',
             public_key: publicKey,
             metadata: JSON.stringify(metadata),
-            nonce: nostr_login_ajax.nonce,
+            authtoken: authToken,
+            nonce: nostr_login_ajax.nonce
           },
-          success: function (response) {
+          success: function(response) {
             if (response.success) {
               window.location.href = response.data.redirect;
             } else {
               alert(response.data.message);
             }
           },
-          error: function () {
-            alert("An error occurred. Please try again.");
-          },
+          error: function(xhr, status, error) {
+            console.error('Login error:', error);
+            alert('An error occurred during login. Please try again.');
+          }
         });
       } catch (error) {
-        // console.error("Nostr login error:", error);
+        console.error('Nostr login error:', error);
         throw error;
       }
     }
