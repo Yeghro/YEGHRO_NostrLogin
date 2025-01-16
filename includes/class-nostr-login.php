@@ -18,6 +18,7 @@ class Nostr_Login_Handler {
     ];
 
     public function init() {
+        add_action( 'init', [$this, 'gmp_check_extension'] );
         add_action( 'login_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
         add_action( 'login_form', array( $this, 'add_nostr_login_field' ) );
         add_action( 'wp_ajax_nostr_login', array( $this, 'ajax_nostr_login' ) );
@@ -33,6 +34,21 @@ class Nostr_Login_Handler {
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
 
         nostr_login_debug_log( "Nostr_Login_Handler class initialized" );
+    }
+
+    public function gmp_check_extension()
+    {
+        if (!extension_loaded('gmp')) {
+            add_action('admin_notices', function () {
+                wp_admin_notice(
+                    __('Nostr Login is currently disabled because the GMP extension for PHP is not installed on your server. Please contact your hosting provider to enable it.', 'gmp-check'),
+                    [
+                        'type' => 'warning',
+                        'additional_classes' => ['is-dismissible'],
+                    ]
+                );
+            });
+        }
     }
 
     public function add_admin_menu() {
@@ -200,10 +216,14 @@ class Nostr_Login_Handler {
         $authtoken = base64_decode($authtoken); // now a json encoded string
 
         // Verify authtoken event signature and format
-        $event = new Event();
-        if (!$event->verify($authtoken)) {
-            nostr_login_debug_log('Authtoken failed verification');
-            wp_send_json_error(['message' => __('Invalid authtoken.', 'nostr-login')]);
+        try {
+            $event = new Event();
+            if (!$event->verify($authtoken)) {
+                nostr_login_debug_log('Authtoken failed verification');
+                wp_send_json_error(['message' => __('Invalid authtoken.', 'nostr-login')]);
+            }
+        } catch (Throwable $e) {
+            wp_send_json_error(['message' => __('Sorry, Nostr Login is currently disabled.', 'nostrly')]);
         }
 
         // Do NIP98 specific authtoken validation checks
