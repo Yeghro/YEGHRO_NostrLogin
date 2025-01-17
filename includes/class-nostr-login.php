@@ -2,6 +2,8 @@
 if ( ! defined( 'ABSPATH' ) ) {
     exit; // Exit if accessed directly
 }
+use swentel\nostr\Event\Event;
+
 // Include the file containing the debug log function
 require_once plugin_dir_path(__FILE__) . '../nostrLogin.php';
 
@@ -12,11 +14,7 @@ class Nostr_Login_Handler {
         "wss://relay.nostr.band",
         "wss://relay.primal.net",
         "wss://relay.damus.io",
-        "wss://nostr.wine",
-        "wss://relay.snort.social",
-        "wss://eden.nostr.land",
-        "wss://nostr.bitcoiner.social",
-        "wss://nostrpub.yeghro.site",
+
     ];
 
     public function init() {
@@ -121,21 +119,21 @@ class Nostr_Login_Handler {
                     <div id="nostr-connect-feedback" style="display:none; margin-top:10px;"></div>
                 </td>
             </tr>
-            
+
             <!-- Existing fields as read-only -->
             <tr>
                 <th><label><?php esc_html_e("Nostr Public Key", "nostr-login"); ?></label></th>
                 <td>
-                    <input type="text" id="nostr_public_key" 
-                           value="<?php echo esc_attr(get_user_meta($user->ID, 'nostr_public_key', true)); ?>" 
+                    <input type="text" id="nostr_public_key"
+                           value="<?php echo esc_attr(get_user_meta($user->ID, 'nostr_public_key', true)); ?>"
                            class="regular-text" readonly />
                 </td>
             </tr>
             <tr>
                 <th><label><?php esc_html_e("Nostr NIP-05", "nostr-login"); ?></label></th>
                 <td>
-                    <input type="text" id="nip05" 
-                           value="<?php echo esc_attr(get_user_meta($user->ID, 'nip05', true)); ?>" 
+                    <input type="text" id="nip05"
+                           value="<?php echo esc_attr(get_user_meta($user->ID, 'nip05', true)); ?>"
                            class="regular-text" readonly />
                 </td>
             </tr>
@@ -197,15 +195,38 @@ class Nostr_Login_Handler {
         }
 
         // Sanitize input data
-        $public_key    = isset( $_POST['public_key'] ) ? sanitize_text_field( wp_unslash( $_POST['public_key'] ) ) : '';
-        $metadata_json = isset( $_POST['metadata'] ) ? sanitize_text_field( wp_unslash( $_POST['metadata'] ) ) : '';
-        
-        if ( empty( $public_key ) ) {
-            nostr_login_debug_log( 'Public key is empty' );
-            wp_send_json_error( array( 'message' => __( 'Public key is required.', 'nostr-login' ) ) );
+        $metadata_json = sanitize_text_field(wp_unslash($_POST['metadata'] ?? ''));
+        $authtoken = sanitize_text_field(wp_unslash($_POST['authtoken'] ?? ''));
+        $authtoken = base64_decode($authtoken); // now a json encoded string
+
+        // Verify authtoken event signature and format
+        $event = new Event();
+        if (!$event->verify($authtoken)) {
+            nostr_login_debug_log('Authtoken failed verification');
+            wp_send_json_error(['message' => __('Invalid authtoken.', 'nostr-login')]);
+        }
+
+        // Do NIP98 specific authtoken validation checks
+        // @see https://github.com/nostr-protocol/nips/blob/master/98.md
+        $nip98 = json_decode($authtoken);
+        if (JSON_ERROR_NONE !== json_last_error()) {
+            nostr_login_debug_log('Invalid authtoken JSON: '.json_last_error_msg());
+            wp_send_json_error(['message' => __('Invalid authtoken: ', 'nostr-login').json_last_error_msg()]);
+        }
+        // nostr_login_debug_log('AUTH: '.print_r($nip98, true));
+        $valid = ('27235' == $nip98->kind) ? true : false;              // NIP98 event
+        $valid = (time() - $nip98->created_at <= 60) ? $valid : false;  // <60 secs old
+        $tags = array_column($nip98->tags, 1, 0);                       // Expected Tags
+        // nostr_login_debug_log(print_r($tags, true));
+        $valid = (admin_url('admin-ajax.php') == $tags['u']) ? $valid : false;
+        $valid = ('post' == $tags['method']) ? $valid : false;
+        if (!$valid) {
+            nostr_login_debug_log('Authorisation is invalid or expired');
+            wp_send_json_error(['message' => __('Authorisation is invalid or expired.', 'nostr-login')]);
         }
 
         // Validate public key format
+        $public_key = $nip98->pubkey;
         if ( ! $this->is_valid_public_key( $public_key ) ) {
             nostr_login_debug_log( 'Invalid public key format' );
             wp_send_json_error( array( 'message' => __( 'Invalid public key format.', 'nostr-login' ) ) );
@@ -346,7 +367,7 @@ class Nostr_Login_Handler {
         // Check if we're on the login page
         if (in_array($GLOBALS['pagenow'], array('wp-login.php')) || did_action('login_enqueue_scripts')) {
             wp_enqueue_script('nostr-login', plugin_dir_url(dirname(__FILE__)) . 'assets/js/nostr-login.min.js', array('jquery'), '1.0', true);
-            
+
             // Sanitize relay URLs
             $relays_option = get_option('nostr_login_relays', implode("\n", $this->default_relays));
             $relays_array = explode("\n", $relays_option);
@@ -358,11 +379,11 @@ class Nostr_Login_Handler {
                 'relays' => $relays,
             ));
         }
-        
+
         // For profile page
         if (in_array($hook, array('profile.php', 'user-edit.php'))) {
             wp_enqueue_script('nostr-login', plugin_dir_url(dirname(__FILE__)) . 'assets/js/nostr-login.min.js', array('jquery'), '1.0', true);
-            
+
             wp_localize_script('nostr-login', 'nostr_login_ajax', array(
                 'ajax_url' => admin_url('admin-ajax.php'),
                 'nonce' => wp_create_nonce('nostr-login-nonce'),
@@ -436,7 +457,7 @@ class Nostr_Login_Handler {
             // Sanitize the JSON string before decoding
             $raw_metadata = sanitize_text_field(wp_unslash($_POST['metadata']));
             $metadata = json_decode($raw_metadata, true);
-            
+
             if (json_last_error() !== JSON_ERROR_NONE) {
                 throw new Exception(__('Invalid metadata format.', 'nostr-login'));
             }
@@ -454,11 +475,11 @@ class Nostr_Login_Handler {
 
             // Update Nostr-specific data
             update_user_meta($user_id, 'nostr_public_key', sanitize_text_field($metadata['public_key']));
-            
+
             if (!empty($metadata['nip05'])) {
                 update_user_meta($user_id, 'nip05', sanitize_text_field($metadata['nip05']));
             }
-            
+
             if (!empty($metadata['image'])) {
                 $avatar_url = esc_url_raw($metadata['image']);
                 update_user_meta($user_id, 'nostr_avatar', $avatar_url);
@@ -466,7 +487,7 @@ class Nostr_Login_Handler {
             }
 
             wp_send_json_success(array('message' => __('Nostr data successfully synced!', 'nostr-login')));
-            
+
         } catch (Exception $e) {
             wp_send_json_error(array('message' => $e->getMessage()));
         }

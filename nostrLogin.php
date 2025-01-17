@@ -3,7 +3,7 @@
 Plugin Name: YEGHRO Nostr Login
 Plugin URI: https://github.com/Yeghro/YEGHRO_NostrLogin
 Description: Secure WordPress authentication using Nostr keys - login and register with your Nostr identity or browser extension.
-Version: 1.4
+Version: 1.5.1
 Author: YEGHRO
 Author URI: https://YEGHRO.site/
 License: GPLv2 or later
@@ -14,6 +14,12 @@ Text Domain: nostr-login
 
 if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly
+}
+
+// * Try to load the Composer if it exists.
+$composer_autoloader = __DIR__.'/vendor/autoload.php';
+if (is_readable($composer_autoloader)) {
+    require $composer_autoloader;
 }
 
 // Include necessary files

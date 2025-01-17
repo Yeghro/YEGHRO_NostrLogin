@@ -1,7 +1,7 @@
 import NDK from "@nostr-dev-kit/ndk";
 import { NDKNip07Signer } from "@nostr-dev-kit/ndk";
-import { getPublicKey } from "nostr-tools/pure";
-import { nip19 } from "nostr-tools"; 
+import { getPublicKey, finalizeEvent } from "nostr-tools/pure";
+import { nip19, nip98 } from "nostr-tools";
 
 (function ($) {
   $(document).ready(function () {
@@ -15,12 +15,7 @@ import { nip19 } from "nostr-tools";
         "wss://relay.nostr.band",
         "wss://relay.primal.net",
         "wss://relay.damus.io",
-        "wss://nostr.wine",
-        "wss://relay.snort.social",
-        "wss://eden.nostr.land",
-        "wss://nostr.bitcoiner.social",
-        "wss://nostrpub.yeghro.site",
-
+        "wss://nostr.wine"
         // Add more relay URLs as needed
       ],
     });
@@ -198,24 +193,25 @@ import { nip19 } from "nostr-tools";
         if (!publicKey) {
           publicKey = getPublicKey(privateKey);
         }
-        // console.log("user pubkey:", publicKey);
 
         // Connect to relays with timeout
-        const connectPromise = ndk.connect();
-        const connectTimeout = new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Connection to relays timed out")),
-            TIMEOUT_DURATION
-          )
-        );
+        if (!ndk.connected) {
+          const connectPromise = ndk.connect();
+          const connectTimeout = new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("Connection to relays timed out")),
+              TIMEOUT_DURATION
+            )
+          );
 
-        try {
-          await Promise.race([connectPromise, connectTimeout]);
-          // console.log("connected to relays", ndk);
-        } catch (error) {
-          // console.error("Failed to connect to relays:", error);
-          alert("Failed to connect to Nostr relays. Please try again later.");
-          return;
+          try {
+            await Promise.race([connectPromise, connectTimeout]);
+            // console.log("connected to relays", ndk);
+          } catch (error) {
+            // console.error("Failed to connect to relays:", error);
+            alert("Failed to connect to Nostr relays. Please try again later.");
+            return;
+          }
         }
 
         // Create user object with the public key and signer if available
@@ -223,29 +219,42 @@ import { nip19 } from "nostr-tools";
         if (signer) {
           user.signer = signer;
         }
-        // console.log("set user:", user);
 
-        // Fetch user profile with timeout
-        const fetchProfilePromise = user.fetchProfile();
-        const fetchProfileTimeout = new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Fetching user profile timed out")),
-            TIMEOUT_DURATION
-          )
-        );
-
-        try {
-          await Promise.race([fetchProfilePromise, fetchProfileTimeout]);
-        } catch (error) {
-          // console.error("Failed to fetch user profile:", error);
-          alert(
-            "Failed to fetch user profile from Nostr. Proceeding with login using available information."
+        // Only fetch profile after ensuring relay connection
+        if (ndk.connected) {
+          // Fetch user profile with timeout
+          const fetchProfilePromise = user.fetchProfile();
+          const fetchProfileTimeout = new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error("Fetching user profile timed out")),
+              TIMEOUT_DURATION
+            )
           );
+
+          try {
+            await Promise.race([fetchProfilePromise, fetchProfileTimeout]);
+          } catch (error) {
+            // console.error("Failed to fetch user profile:", error);
+            alert(
+              "Failed to fetch user profile from Nostr. Proceeding with login using available information."
+            );
+          }
         }
 
         // Get user metadata
         const metadata = user.profile || {};
         // console.log("stored user metadata:", metadata);
+
+        // Create signed authtoken event
+        try {
+          const _sign = (privateKey) ? (e) => finalizeEvent(e, privateKey) : (e) => window.nostr.signEvent(e);
+          var authToken = await nip98.getToken(nostr_login_ajax.ajax_url, 'post', _sign);
+          // console.log("authtoken:", authToken);
+        } catch (error) {
+          console.error("Failed to create authtoken:", error);
+          alert("Failed to create authtoken.");
+          return;
+        }
 
         // Send login request to WordPress
         $.ajax({
@@ -253,7 +262,7 @@ import { nip19 } from "nostr-tools";
           type: "POST",
           data: {
             action: "nostr_login",
-            public_key: publicKey,
+            authtoken: authToken,
             metadata: JSON.stringify(metadata),
             nonce: nostr_login_ajax.nonce,
           },
@@ -278,7 +287,7 @@ import { nip19 } from "nostr-tools";
         e.preventDefault();
         const $feedback = $('#nostr-connect-feedback');
         const $button = $(e.target);
-        
+
         try {
             // Disable button and show loading state
             $button.prop('disabled', true);
@@ -292,7 +301,7 @@ import { nip19 } from "nostr-tools";
 
             const nip07Signer = new NDKNip07Signer();
             const user = await nip07Signer.user();
-            
+
             if (!user || !user.pubkey) {
                 throw new Error('Failed to get public key from extension.');
             }
@@ -315,16 +324,16 @@ import { nip19 } from "nostr-tools";
             // Create NDK user and fetch profile with explicit error handling
             const ndkUser = ndk.getUser({ pubkey: user.pubkey });
             ndkUser.signer = nip07Signer;
-            
+
             try {
                 // Set a timeout for profile fetching
                 const profilePromise = ndkUser.fetchProfile();
-                const timeoutPromise = new Promise((_, reject) => 
+                const timeoutPromise = new Promise((_, reject) =>
                     setTimeout(() => reject(new Error('Profile fetch timeout')), 15000)
                 );
-                
+
                 await Promise.race([profilePromise, timeoutPromise]);
-                
+
                 if (!ndkUser.profile) {
                     console.warn('No profile data found, proceeding with public key only');
                 }
@@ -358,11 +367,11 @@ import { nip19 } from "nostr-tools";
             if (response.success) {
                 $feedback.removeClass('notice-info').addClass('notice-success')
                     .html('Successfully synced Nostr data!');
-                
+
                 // Update displayed values
                 $('#nostr-public-key').val(metadata.public_key);
                 $('#nostr-nip05').val(metadata.nip05);
-                
+
                 // Refresh page if avatar updated
                 if (metadata.image) {
                     setTimeout(() => location.reload(), 1500);
@@ -381,19 +390,17 @@ import { nip19 } from "nostr-tools";
 
     // Add event listener
     $(document).ready(function() {
-        console.log('Nostr login script loaded'); // Debug log
-        
+        console.log('Nostr login script loaded');
+
         const $connectButton = $('#nostr-connect-extension');
         const $resyncButton = $('#nostr-resync-extension');
-        
+
         if ($connectButton.length || $resyncButton.length) {
-            console.log('Found Nostr connect/resync buttons'); // Debug log
+            console.log('Found Nostr connect/resync buttons');
+            
+            // Attach event handlers to buttons
+            $('#nostr-connect-extension, #nostr-resync-extension').on('click', handleNostrSync);
         }
-        
-        $('#nostr-connect-extension, #nostr-resync-extension').on('click', function(e) {
-            console.log('Nostr sync button clicked'); // Debug log
-            handleNostrSync(e);
-        });
     });
   });
 })(jQuery);
