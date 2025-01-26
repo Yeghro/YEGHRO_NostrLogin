@@ -31,6 +31,8 @@ class Nostr_Import_Handler {
         add_action('wp_ajax_nostr_import_posts', array($this, 'ajax_import_posts'));
         // Enqueue admin scripts
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
+        // Add filter for content display
+        add_filter('the_content', array($this, 'maybe_add_nostr_images'), 20);
     }
 
     private function initialize_client() {
@@ -332,15 +334,48 @@ class Nostr_Import_Handler {
     }
 
     private function prepare_post_content($content, $tags) {
+        // Extract and process image URLs from content
+        $processed_content = $this->process_image_urls($content);
+        
         // Convert Nostr mentions to readable format
-        $content = $this->process_mentions($content, $tags);
+        $processed_content = $this->process_mentions($processed_content, $tags);
         
         // Convert URLs to clickable links
-        $content = make_clickable($content);
+        $processed_content = make_clickable($processed_content);
         
         // Convert Markdown to HTML if needed
         if (function_exists('wpmarkdown_markdown_to_html')) {
-            $content = wpmarkdown_markdown_to_html($content);
+            $processed_content = wpmarkdown_markdown_to_html($processed_content);
+        }
+        
+        return $processed_content;
+    }
+
+    private function process_image_urls($content) {
+        // Regular expressions for common image URLs
+        $patterns = [
+            '/(https?:\/\/[^\s<>"]+?\.(?:jpg|jpeg|gif|png|webp))(\s|$|\"|\')/i',
+            '/\[image\](https?:\/\/[^\s<>"]+?\.(?:jpg|jpeg|gif|png|webp))\[\/image\]/i'
+        ];
+        
+        foreach ($patterns as $pattern) {
+            $content = preg_replace_callback($pattern, function($matches) {
+                $url = $matches[1];
+                $suffix = $matches[2] ?? '';
+                
+                // Validate URL
+                if (!filter_var($url, FILTER_VALIDATE_URL)) {
+                    return $matches[0];
+                }
+                
+                // Create image HTML with responsive class
+                $image_html = sprintf(
+                    '<figure class="nostr-image-container"><img src="%s" alt="" class="nostr-imported-image" loading="lazy" /><figcaption class="nostr-image-caption">Imported from Nostr</figcaption></figure>',
+                    esc_url($url)
+                );
+                
+                return $image_html . $suffix;
+            }, $content);
         }
         
         return $content;
@@ -377,6 +412,30 @@ class Nostr_Import_Handler {
         
         // Store original event JSON for reference
         update_post_meta($post_id, '_nostr_original_event', wp_json_encode($event));
+        
+        // Extract and store image URLs
+        $image_urls = $this->extract_image_urls($event['content']);
+        if (!empty($image_urls)) {
+            update_post_meta($post_id, '_nostr_image_urls', array_map('esc_url', $image_urls));
+        }
+    }
+
+    private function extract_image_urls($content) {
+        $image_urls = [];
+        
+        // Match common image URL patterns
+        $patterns = [
+            '/(https?:\/\/[^\s<>"]+?\.(?:jpg|jpeg|gif|png|webp))/i',
+            '/\[image\](https?:\/\/[^\s<>"]+?\.(?:jpg|jpeg|gif|png|webp))\[\/image\]/i'
+        ];
+        
+        foreach ($patterns as $pattern) {
+            if (preg_match_all($pattern, $content, $matches)) {
+                $image_urls = array_merge($image_urls, $matches[1]);
+            }
+        }
+        
+        return array_unique($image_urls);
     }
 
     private function process_tags($post_id, $tags) {
@@ -455,5 +514,22 @@ class Nostr_Import_Handler {
                 json_encode($context)
             ));
         }
+    }
+
+    public function maybe_add_nostr_images($content) {
+        // Only modify single post views
+        if (!is_single()) {
+            return $content;
+        }
+        
+        $post_id = get_the_ID();
+        $image_urls = get_post_meta($post_id, '_nostr_image_urls', true);
+        
+        if (empty($image_urls)) {
+            return $content;
+        }
+        
+        // Images are already embedded in content through prepare_post_content()
+        return $content;
     }
 } 
