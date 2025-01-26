@@ -4,11 +4,19 @@ if (!defined('ABSPATH')) {
 }
 
 use swentel\nostr\Event\Event;
+use swentel\nostr\Filter\Filter;
+use swentel\nostr\Message\RequestMessage;
+use swentel\nostr\Relay\Relay;
+use swentel\nostr\Relay\RelaySet;
+use swentel\nostr\Request\Request;
+use swentel\nostr\Subscription\Subscription;
 
 class Nostr_Import_Handler {
     private $ndk_initialized = false;
     private $default_relays;
     private $errors = [];
+    private const BATCH_SIZE = 50;
+    private $relay_set;
 
     public function __construct() {
         // Get relay list from settings
@@ -25,10 +33,52 @@ class Nostr_Import_Handler {
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
     }
 
+    private function initialize_client() {
+        if ($this->ndk_initialized) {
+            return;
+        }
+
+        try {
+            // Check if required classes exist
+            if (!class_exists('swentel\nostr\Relay\Relay')) {
+                throw new Exception('Required Nostr PHP library not found. Please ensure dependencies are installed.');
+            }
+
+            // Initialize RelaySet with all configured relays
+            $relays = [];
+            foreach ($this->default_relays as $relay_url) {
+                nostr_login_debug_log("Adding relay: " . $relay_url);
+                $relays[] = new Relay($relay_url);
+            }
+            
+            $this->relay_set = new RelaySet();
+            $this->relay_set->setRelays($relays);
+            $this->ndk_initialized = true;
+            
+            nostr_login_debug_log("Successfully initialized relay set");
+        } catch (Exception $e) {
+            nostr_login_debug_log("Failed to initialize client: " . $e->getMessage());
+            throw new Exception('Failed to initialize client: ' . $e->getMessage());
+        }
+    }
+
     private function get_relay_urls() {
         $relays_option = get_option('nostr_login_relays', '');
         $relays_array = explode("\n", $relays_option);
-        return array_filter(array_map('esc_url', array_map('trim', $relays_array)));
+        $relays = array_filter(array_map('esc_url', array_map('trim', $relays_array)));
+        
+        // Use default relays if none are configured
+        if (empty($relays)) {
+            $relays = [
+                "wss://purplepag.es",
+                "wss://relay.nostr.band",
+                "wss://relay.primal.net",
+                "wss://relay.damus.io",
+                "wss://nostr.wine"
+            ];
+        }
+        
+        return $relays;
     }
 
     public function add_import_menu() {
@@ -46,7 +96,9 @@ class Nostr_Import_Handler {
             return;
         }
 
-        // Enqueue our built import script from assets directory
+        wp_enqueue_script('jquery');
+        wp_enqueue_style('wp-components'); // For WordPress styling
+
         wp_enqueue_script(
             'nostr-import',
             plugin_dir_url(dirname(__FILE__)) . 'assets/js/nostr-imports.min.js',
@@ -106,6 +158,20 @@ class Nostr_Import_Handler {
                                 </label>
                             </td>
                         </tr>
+                        <tr>
+                            <th scope="row"><?php esc_html_e('Content Filters', 'nostr-login'); ?></th>
+                            <td>
+                                <label>
+                                    <input type="text" name="tag_filter" />
+                                    <?php esc_html_e('Filter by hashtag', 'nostr-login'); ?>
+                                </label>
+                                <br />
+                                <label>
+                                    <input type="checkbox" name="include_reposts" value="1" />
+                                    <?php esc_html_e('Include reposts', 'nostr-login'); ?>
+                                </label>
+                            </td>
+                        </tr>
                     </table>
 
                     <p class="submit">
@@ -147,22 +213,40 @@ class Nostr_Import_Handler {
         $pubkey = sanitize_text_field($_POST['author_pubkey']);
         $date_from = sanitize_text_field($_POST['date_from']);
         $date_to = sanitize_text_field($_POST['date_to']);
+        $tag_filter = !empty($_POST['tag_filter']) ? sanitize_text_field($_POST['tag_filter']) : '';
         
         try {
-            $events = $this->fetch_nostr_events($pubkey, $date_from, $date_to);
+            nostr_login_debug_log("Import preview request - Pubkey: $pubkey, Tag filter: $tag_filter");
+            
+            $events = $this->fetch_nostr_events($pubkey, $date_from, $date_to, $tag_filter);
+            
             wp_send_json_success([
                 'events' => $events,
                 'count' => count($events)
             ]);
         } catch (Exception $e) {
+            nostr_login_debug_log("Error in import preview: " . $e->getMessage());
             wp_send_json_error(['message' => $e->getMessage()]);
         }
     }
 
-    private function fetch_nostr_events($pubkey, $date_from, $date_to) {
-        // This is a placeholder - you'll need to implement the actual NDK fetching logic
-        // This will be implemented in the next part
-        return [];
+    private function fetch_nostr_events($pubkey, $date_from, $date_to, $tag_filter = '') {
+        try {
+            // Since we're having issues with the PHP library, let's use the JavaScript NDK instead
+            wp_send_json_success([
+                'use_js_ndk' => true,
+                'params' => [
+                    'pubkey' => $pubkey,
+                    'date_from' => $date_from,
+                    'date_to' => $date_to,
+                    'tag_filter' => $tag_filter
+                ]
+            ]);
+            
+        } catch (Exception $e) {
+            nostr_login_debug_log("Error fetching events: " . $e->getMessage());
+            throw new Exception('Failed to fetch events: ' . $e->getMessage());
+        }
     }
 
     public function ajax_import_posts() {
@@ -192,52 +276,184 @@ class Nostr_Import_Handler {
     }
 
     private function import_event($event) {
-        // Create post array
-        $post_data = array(
-            'post_title' => wp_trim_words($event['content'], 10, '...'),
-            'post_content' => wp_kses_post($event['content']),
-            'post_status' => 'publish',
-            'post_author' => get_current_user_id(),
-            'post_type' => 'post',
-            'post_date' => date('Y-m-d H:i:s', $event['created_at'])
-        );
+        try {
+            // Validate required event data
+            if (empty($event['id']) || empty($event['content']) || empty($event['created_at'])) {
+                throw new Exception('Missing required event data');
+            }
 
-        // Insert post
-        $post_id = wp_insert_post($post_data);
+            // Check if post already exists
+            if ($existing_id = $this->get_post_by_event_id($event['id'])) {
+                throw new Exception("Post already exists with ID: {$existing_id}");
+            }
 
-        if (is_wp_error($post_id)) {
-            throw new Exception($post_id->get_error_message());
+            // Handle threading
+            $parent_id = null;
+            foreach ($event['tags'] as $tag) {
+                if ($tag[0] === 'e' && !empty($tag[1])) {
+                    $parent_id = $this->get_post_by_event_id($tag[1]);
+                    break;
+                }
+            }
+            
+            // Prepare post content with proper formatting
+            $content = $this->prepare_post_content($event['content'], $event['tags']);
+            
+            $post_data = array(
+                'post_title' => wp_trim_words($content, 10, '...'),
+                'post_content' => wp_kses_post($content),
+                'post_status' => 'publish',
+                'post_author' => get_current_user_id(),
+                'post_type' => 'post',
+                'post_date' => date('Y-m-d H:i:s', $event['created_at']),
+                'post_parent' => $parent_id,
+            );
+
+            // Insert post with error handling
+            $post_id = wp_insert_post($post_data, true);
+            if (is_wp_error($post_id)) {
+                throw new Exception($post_id->get_error_message());
+            }
+
+            // Store Nostr metadata with sanitization
+            $this->store_post_metadata($post_id, $event);
+            
+            // Process tags with enhanced handling
+            $this->process_tags($post_id, $event['tags']);
+
+            return $post_id;
+        } catch (Exception $e) {
+            $this->log_error('Import event failed', [
+                'event_id' => $event['id'] ?? 'unknown',
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
         }
+    }
 
-        // Store Nostr metadata
+    private function prepare_post_content($content, $tags) {
+        // Convert Nostr mentions to readable format
+        $content = $this->process_mentions($content, $tags);
+        
+        // Convert URLs to clickable links
+        $content = make_clickable($content);
+        
+        // Convert Markdown to HTML if needed
+        if (function_exists('wpmarkdown_markdown_to_html')) {
+            $content = wpmarkdown_markdown_to_html($content);
+        }
+        
+        return $content;
+    }
+
+    private function process_mentions($content, $tags) {
+        // Create lookup of mentions
+        $mentions = [];
+        foreach ($tags as $tag) {
+            if ($tag[0] === 'p' && !empty($tag[1])) {
+                $mentions[$tag[1]] = !empty($tag[2]) ? $tag[2] : $tag[1];
+            }
+        }
+        
+        // Replace mentions in content
+        foreach ($mentions as $pubkey => $name) {
+            $content = str_replace(
+                "nostr:pubkey:" . $pubkey,
+                sprintf('@%s', esc_html($name)),
+                $content
+            );
+        }
+        
+        return $content;
+    }
+
+    private function store_post_metadata($post_id, $event) {
         update_post_meta($post_id, '_nostr_event_id', sanitize_text_field($event['id']));
         update_post_meta($post_id, '_nostr_pubkey', sanitize_text_field($event['pubkey']));
         
-        // Handle tags
-        if (!empty($event['tags'])) {
-            $this->process_tags($post_id, $event['tags']);
+        if (!empty($event['seen_on']) && is_array($event['seen_on'])) {
+            update_post_meta($post_id, '_nostr_relays', array_map('esc_url', $event['seen_on']));
         }
-
-        return $post_id;
+        
+        // Store original event JSON for reference
+        update_post_meta($post_id, '_nostr_original_event', wp_json_encode($event));
     }
 
     private function process_tags($post_id, $tags) {
         $wp_tags = array();
+        $mentions = array();
+        $references = array();
         
         foreach ($tags as $tag) {
-            if ($tag[0] === 't') { // Hashtag
-                $wp_tags[] = sanitize_text_field($tag[1]);
+            if (!is_array($tag) || count($tag) < 2) {
+                continue;
             }
-            // Store other tag types as post meta
-            update_post_meta(
-                $post_id, 
-                '_nostr_tag_' . sanitize_key($tag[0]), 
-                sanitize_text_field($tag[1])
-            );
+            
+            switch ($tag[0]) {
+                case 't': // Hashtags
+                    $tag_name = sanitize_text_field($tag[1]);
+                    if (!empty($tag_name)) {
+                        $wp_tags[] = $tag_name;
+                    }
+                    break;
+                
+                case 'p': // Mentions
+                    if (!empty($tag[1])) {
+                        $mentions[] = sanitize_text_field($tag[1]);
+                        update_post_meta(
+                            $post_id,
+                            '_nostr_mention_' . count($mentions),
+                            $tag[1]
+                        );
+                    }
+                    break;
+                
+                case 'e': // Note references
+                    if (!empty($tag[1])) {
+                        $references[] = sanitize_text_field($tag[1]);
+                        update_post_meta(
+                            $post_id,
+                            '_nostr_reference_' . count($references),
+                            $tag[1]
+                        );
+                    }
+                    break;
+            }
         }
 
+        // Set WordPress tags
         if (!empty($wp_tags)) {
             wp_set_post_tags($post_id, $wp_tags, true);
+        }
+
+        // Store counts
+        update_post_meta($post_id, '_nostr_mention_count', count($mentions));
+        update_post_meta($post_id, '_nostr_reference_count', count($references));
+    }
+
+    private function get_post_by_event_id($event_id) {
+        $posts = get_posts([
+            'meta_key' => '_nostr_event_id',
+            'meta_value' => $event_id,
+            'posts_per_page' => 1
+        ]);
+        
+        return !empty($posts) ? $posts[0]->ID : 0;
+    }
+
+    private function log_error($message, $context = []) {
+        $this->errors[] = [
+            'message' => $message,
+            'context' => $context,
+            'time' => current_time('mysql')
+        ];
+        
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log(sprintf(
+                '[Nostr Import] %s | Context: %s',
+                $message,
+                json_encode($context)
+            ));
         }
     }
 } 

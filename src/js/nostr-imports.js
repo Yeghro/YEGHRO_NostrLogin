@@ -28,40 +28,27 @@ import { nip19 } from "nostr-tools";
         }
 
         async initializeNDK() {
-            if (this.ndk) {
+            if (this.ndk && this.ndk.pool.relays.size > 0) {
                 console.log('NDK already initialized');
                 return;
             }
 
-            console.log('Initializing NDK with relays:', this.defaultRelays);
-            
+            const relays = nostrImport.relays;
+            console.log('Initializing NDK with relays:', relays);
+
+            this.ndk = new NDK({
+                explicitRelayUrls: relays,
+                enableOutboxModel: false // Disable outbox to only read events
+            });
+
             try {
-                // Create new NDK instance
-                this.ndk = new NDK({
-                    explicitRelayUrls: this.defaultRelays
-                });
-
-                // Connect to relays with timeout
-                const connectPromise = this.ndk.connect();
-                const connectTimeout = new Promise((_, reject) =>
-                    setTimeout(
-                        () => reject(new Error("Connection to relays timed out")),
-                        15000
-                    )
-                );
-
-                await Promise.race([connectPromise, connectTimeout]);
+                await this.ndk.connect();
                 console.log('Successfully connected to relays');
-                
-                // Log connected relays for debugging
-                const connectedRelays = Array.from(this.ndk.pool.relays.values())
-                    .map(relay => relay.url);
+                const connectedRelays = Array.from(this.ndk.pool.relays.keys());
                 console.log('Connected relays:', connectedRelays);
-                
-                return this.ndk;
             } catch (error) {
-                console.error('NDK initialization failed:', error);
-                throw error;
+                console.error('Failed to connect to relays:', error);
+                throw new Error('Failed to connect to Nostr relays');
             }
         }
 
@@ -80,59 +67,231 @@ import { nip19 } from "nostr-tools";
             
             try {
                 const pubkey = $('#author_pubkey').val();
-                const dateFrom = $('#date_from').val();
-                const dateTo = $('#date_to').val();
-
                 // Convert npub to hex if needed
                 let hexPubkey = pubkey;
                 if (pubkey.startsWith('npub')) {
                     try {
-                        const { type, data } = this.nip19.decode(pubkey);
-                        if (type === 'npub') {
-                            hexPubkey = data;
-                        } else {
-                            throw new Error('Invalid npub key');
-                        }
+                        const decoded = nip19.decode(pubkey);
+                        hexPubkey = decoded.data;
                     } catch (error) {
-                        console.error('Error decoding npub:', error);
-                        $preview.html('Error: Invalid npub format. Please check your public key.');
-                        return;
+                        throw new Error('Invalid npub format');
                     }
                 }
 
-                console.log('Using pubkey:', {
-                    original: pubkey,
-                    hex: hexPubkey
-                });
-
-                await this.initializeNDK();
+                const dateFrom = $('#date_from').val();
+                const dateTo = $('#date_to').val();
+                const tagFilter = $('input[name="tag_filter"]').val();
                 
-                $preview.html('Fetching events...');
-                
-                const events = await this.fetchEvents(hexPubkey, dateFrom, dateTo);
-                this.events = events;
-                console.log(`Retrieved ${events.length} events`);
+                // Create filter object according to NIP-01
+                const filter = {
+                    authors: [hexPubkey],
+                    kinds: [1], // Regular notes
+                };
 
-                if (events.length > 0) {
-                    console.log('Sample event:', {
-                        id: events[0].id,
-                        pubkey: events[0].pubkey,
-                        created_at: new Date(events[0].created_at * 1000).toISOString(),
-                        content: events[0].content.substring(0, 100) + '...'
-                    });
+                // Add date filters only if they exist
+                if (dateFrom) {
+                    filter.since = Math.floor(new Date(dateFrom).getTime() / 1000);
+                }
+                if (dateTo) {
+                    filter.until = Math.floor(new Date(dateTo).getTime() / 1000);
                 }
 
-                const previewHtml = this.generatePreview(events);
+                console.log('Using filter:', filter);
+
+                // Initialize NDK if needed
+                await this.initializeNDK();
+                
+                $preview.html('<div class="notice notice-info"><p>Fetching events...</p></div>');
+                
+                // Use NDK to fetch events with filter
+                console.log('Fetching events with filter:', JSON.stringify(filter, null, 2));
+                
+                const subscription = this.ndk.subscribe(filter, { closeOnEose: true });
+                let events = new Set();
+                
+                try {
+                    await new Promise((resolve) => {
+                        subscription.on('event', (event) => {
+                            // If tag filter is specified, check if event has matching tag
+                            if (tagFilter && tagFilter.trim()) {
+                                const tagValue = tagFilter.trim().toLowerCase();
+                                // Check both 't' tags and content for hashtags
+                                const hasTTag = event.tags.some(tag => 
+                                    tag[0] === 't' && tag[1].toLowerCase() === tagValue
+                                );
+                                const hasHashtag = event.content.toLowerCase().includes(`#${tagValue}`);
+                                
+                                if (hasTTag || hasHashtag) {
+                                    console.log('Found matching tag in event:', event.id);
+                                    events.add(event);
+                                }
+                            } else {
+                                events.add(event);
+                            }
+                        });
+
+                        subscription.on('eose', () => {
+                            console.log(`EOSE received. Total events: ${events.size}`);
+                            resolve();
+                        });
+
+                        // Set timeout
+                        setTimeout(resolve, 5000);
+                    });
+                } finally {
+                    console.log('Subscription completed');
+                }
+
+                const processedEvents = Array.from(events).map(event => ({
+                    id: event.id,
+                    content: event.content,
+                    created_at: event.created_at,
+                    pubkey: event.pubkey,
+                    tags: event.tags,
+                    seen_on: Array.from(event.seenOn || [])
+                }));
+
+                // Store the processed events for import
+                this.events = processedEvents;
+
+                console.log(`Processed ${processedEvents.length} events`);
+
+                if (processedEvents.length === 0) {
+                    $preview.html(`
+                        <div class="notice notice-warning">
+                            <p>No posts found. Current filter:</p>
+                            <pre>${JSON.stringify(filter, null, 2)}</pre>
+                            ${tagFilter ? `<p>Tag filter: "${tagFilter}"</p>` : ''}
+                            <p>Connected relays:</p>
+                            <ul>
+                                ${Array.from(this.ndk.pool.relays.keys()).map(relay => 
+                                    `<li>${relay}</li>`
+                                ).join('')}
+                            </ul>
+                        </div>
+                    `);
+                    return;
+                }
+
+                // Generate preview HTML
+                const previewHtml = `
+                    <div class="nostr-preview-container">
+                        <div class="notice notice-success">
+                            <p>Found ${processedEvents.length} posts</p>
+                        </div>
+                        <div class="nostr-preview-list">
+                            ${processedEvents.map(event => {
+                                try {
+                                    return `
+                                        <div class="nostr-preview-item">
+                                            <div class="nostr-preview-date">
+                                                <strong>Date:</strong> ${new Date(event.created_at * 1000).toLocaleString()}
+                                            </div>
+                                            <div class="nostr-preview-content">
+                                                <strong>Content:</strong> ${
+                                                    event.content ? 
+                                                    (event.content.substring(0, 100) + (event.content.length > 100 ? '...' : '')) : 
+                                                    'No content'
+                                                }
+                                            </div>
+                                            <div class="nostr-preview-tags">
+                                                <strong>Tags:</strong> ${
+                                                    Array.isArray(event.tags) ? 
+                                                    event.tags.map(tag => `<span class="nostr-tag">${tag[0]}:${tag[1]}</span>`).join(', ') : 
+                                                    'No tags'
+                                                }
+                                            </div>
+                                        </div>
+                                    `;
+                                } catch (error) {
+                                    console.error('Error rendering event:', error, event);
+                                    return `
+                                        <div class="error">
+                                            Error rendering event: ${error.message}
+                                        </div>
+                                    `;
+                                }
+                            }).join('')}
+                        </div>
+                    </div>
+                    <style>
+                        .nostr-preview-container {
+                            margin: 20px 0;
+                            padding: 15px;
+                            background: #fff;
+                            border: 1px solid #ccd0d4;
+                            border-radius: 4px;
+                        }
+                        .nostr-preview-list {
+                            margin: 0;
+                            padding: 0;
+                        }
+                        .nostr-preview-item {
+                            margin-bottom: 15px;
+                            padding: 10px;
+                            border: 1px solid #e5e5e5;
+                            background: #f8f9fa;
+                            border-radius: 3px;
+                        }
+                        .nostr-preview-date,
+                        .nostr-preview-content,
+                        .nostr-preview-tags {
+                            margin-bottom: 8px;
+                            word-break: break-word;
+                        }
+                        .nostr-tag {
+                            display: inline-block;
+                            background: #e9ecef;
+                            padding: 2px 6px;
+                            border-radius: 3px;
+                            margin: 2px;
+                            font-size: 0.9em;
+                        }
+                        .notice {
+                            margin: 0 0 15px 0;
+                            padding: 10px;
+                            border-left: 4px solid #72aee6;
+                        }
+                        .notice-success {
+                            border-color: #46b450;
+                            background: #ecf7ed;
+                        }
+                        .notice-error {
+                            border-color: #dc3232;
+                            background: #fbeaea;
+                        }
+                        .notice-warning {
+                            border-color: #ffb900;
+                            background: #fff8e5;
+                        }
+                        .notice-info {
+                            border-color: #00a0d2;
+                            background: #f0f6fc;
+                        }
+                    </style>
+                `;
+                
+                console.log('Updating preview content');
                 $preview.html(previewHtml);
                 
+                // Ensure preview container is visible
                 $('#import-preview').show();
+                
+                console.log('Preview updated successfully');
             } catch (error) {
-                console.error('Preview generation failed:', error);
-                $preview.html(`Error: ${error.message}`);
+                console.error('Preview error:', error);
+                this.events = []; // Clear events on error
+                $preview.html(`
+                    <div class="notice notice-error">
+                        <p>Error: ${error.message}</p>
+                        <p>Filter used:</p>
+                        <pre>${JSON.stringify(filter, null, 2)}</pre>
+                    </div>
+                `);
             }
         }
 
-        async fetchEvents(pubkey, dateFrom, dateTo) {
+        async fetchEvents(pubkey, dateFrom, dateTo, tagFilter) {
             // Convert dates to timestamps
             const since = dateFrom ? new Date(dateFrom).getTime() / 1000 : undefined;
             const until = dateTo ? new Date(dateTo).getTime() / 1000 : undefined;
@@ -213,6 +372,17 @@ import { nip19 } from "nostr-tools";
 
         async handleImport() {
             console.log('Starting import process');
+            
+            if (!this.events || !this.events.length) {
+                console.error('No events to import');
+                $('#import-status').html(`
+                    <div class="notice notice-error">
+                        <p>No events to import. Please preview first.</p>
+                    </div>
+                `);
+                return;
+            }
+
             const $progress = $('#import-progress');
             const $status = $('#import-status');
             const total = this.events.length;

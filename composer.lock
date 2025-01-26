@@ -729,29 +729,27 @@
             "support": {
                 "source": "https://github.com/1ma/PHPASN1/tree/v2.5.1"
             },
+            "abandoned": "genkgo/php-asn1",
             "time": "2024-11-29T17:34:36+00:00"
         },
         {
             "name": "uma/phpecc",
-            "version": "v0.2.0",
+            "version": "v0.2.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/1ma/phpecc.git",
-                "reference": "8952716a7378a829b9ce50535e913f6592664173"
+                "reference": "e269be5eaef099fb46831037d097c647a6da2f69"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/1ma/phpecc/zipball/8952716a7378a829b9ce50535e913f6592664173",
-                "reference": "8952716a7378a829b9ce50535e913f6592664173",
+                "url": "https://api.github.com/repos/1ma/phpecc/zipball/e269be5eaef099fb46831037d097c647a6da2f69",
+                "reference": "e269be5eaef099fb46831037d097c647a6da2f69",
                 "shasum": ""
             },
             "require": {
                 "ext-gmp": "*",
                 "php": "^8.0",
                 "uma/phpasn1": "^2.5.1"
-            },
-            "replace": {
-                "mdanter/ecc": "1.0.0"
             },
             "require-dev": {
                 "phpunit/phpunit": "^9.0",
@@ -812,9 +810,10 @@
                 "secp256r1"
             ],
             "support": {
-                "source": "https://github.com/1ma/phpecc/tree/v0.2.0"
+                "source": "https://github.com/1ma/phpecc/tree/v0.2.1"
             },
-            "time": "2024-11-29T17:59:36+00:00"
+            "abandoned": "paragonie/ecc",
+            "time": "2025-01-21T00:38:50+00:00"
         }
     ],
     "packages-dev": [],
@@ -825,5 +824,5 @@
     "prefer-lowest": false,
     "platform": [],
     "platform-dev": [],
-    "plugin-api-version": "2.3.0"
+    "plugin-api-version": "2.6.0"
 }

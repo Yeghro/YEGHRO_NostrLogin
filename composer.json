@@ -1,5 +1,16 @@
 {
     "require": {
         "swentel/nostr-php": "^1.5"
-    }
+    },
+    "autoload": {
+        "psr-4": {
+            "YEGHRO\\NostrLogin\\": "src/"
+        }
+    },
+    "config": {
+        "platform": {
+            "php": "7.4"
+        }
+    },
+    "minimum-stability": "stable"
 }
