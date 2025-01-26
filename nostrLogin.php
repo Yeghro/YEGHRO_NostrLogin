@@ -24,10 +24,15 @@ if (is_readable($composer_autoloader)) {
 
 // Include necessary files
 require_once plugin_dir_path(__FILE__) . 'includes/class-nostr-login.php';
+require_once plugin_dir_path(__FILE__) . 'includes/class-nostr-import.php';
 
 function nostr_login_plugin_init() {
     $nostr_login = new Nostr_Login_Handler();
     $nostr_login->init();
+    
+    // Initialize import handler
+    $nostr_import = new Nostr_Import_Handler();
+    $nostr_import->init();
 }
 add_action('plugins_loaded', 'nostr_login_plugin_init');
 

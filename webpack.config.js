@@ -6,9 +6,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default {
-  entry: './src/js/nostr-login.js',
+  entry: {
+    'nostr-login': './src/js/nostr-login.js',
+    'nostr-imports': './src/js/nostr-imports.js'
+  },
   output: {
-    filename: 'nostr-login.min.js',
+    filename: '[name].min.js',
     path: path.resolve(__dirname, 'assets/js'),
   },
   mode: 'production',

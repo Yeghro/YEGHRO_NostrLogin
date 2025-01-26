@@ -46,18 +46,15 @@ YEGHRO Nostr Login enables WordPress users to authenticate using their Nostr key
 = 1.3 =
 * Added option for existing Wordpress users to connect/sync their Nostr accounts from within profile profile page
 
-
 = 1.2 =
 * Enhanced profile synchronization
 * Improved relay configuration options
 * Bug fixes and performance improvements
 
-
 = 1.0 =
 * Initial release
 * Automatic user registration
 * Basic profile sync features
-
 
 == Frequently Asked Questions ==
 
