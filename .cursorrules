@@ -59,3 +59,11 @@
     9. Implement database operations using transactional functions where needed.
     10. Schedule tasks using WordPress’s WP_Cron API for automated workflows.
     
+   !! Important Mantra !! 
+    - Keep it simple.
+    - Keep it modular.
+    - Keep it short and concise.
+    - Keep it minimalistic.
+    - Keep it consistent.
+    - Solve the problem with the least amount of code.
+    - avoid creating extra code or modifying already working code.

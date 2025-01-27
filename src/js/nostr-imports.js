@@ -151,6 +151,22 @@ const CONFIG = {
                 }
             }
 
+            // Add metadata filter
+            const metadataFilter = {
+                authors: [hexPubkey],
+                kinds: [0],
+                limit: 1
+            };
+
+            // Fetch metadata first
+            await this.initializeNDK();
+            const metadataEvents = await this.ndk.fetchEvents(metadataFilter);
+            const metadata = Array.from(metadataEvents)[0];
+            
+            if (metadata) {
+                this.userMetadata = this.processMetadata(metadata);
+            }
+
             const dateFrom = $('#date_from').val();
             const dateTo = $('#date_to').val();
             
@@ -167,6 +183,25 @@ const CONFIG = {
             }
 
             return filter;
+        }
+
+        processMetadata(event) {
+            try {
+                const metadata = JSON.parse(event.content);
+                return {
+                    name: metadata.name || '',
+                    about: metadata.about || '',
+                    picture: metadata.picture || '',
+                    nip05: metadata.nip05 || '',
+                    website: metadata.website || '',
+                    banner: metadata.banner || '',
+                    displayName: metadata.display_name || metadata.displayName || '',
+                    raw: metadata
+                };
+            } catch (error) {
+                console.error('Error parsing metadata:', error);
+                return null;
+            }
         }
 
         async fetchEventsWithTimeout(filter) {
@@ -292,9 +327,49 @@ const CONFIG = {
                 return;
             }
 
-            // Generate preview HTML
+            // Add metadata section if available
+            let metadataHtml = '';
+            if (this.userMetadata) {
+                metadataHtml = `
+                    <div class="nostr-user-metadata">
+                        <div class="profile-header">
+                            ${this.userMetadata.banner ? `
+                                <div class="profile-banner">
+                                    <img src="${this.escapeHtml(this.userMetadata.banner)}" alt="Profile banner">
+                                </div>
+                            ` : ''}
+                            <div class="profile-info">
+                                ${this.userMetadata.picture ? `
+                                    <div class="profile-picture">
+                                        <img src="${this.escapeHtml(this.userMetadata.picture)}" alt="Profile picture">
+                                    </div>
+                                ` : ''}
+                                <div class="profile-details">
+                                    <h3>${this.escapeHtml(this.userMetadata.displayName || this.userMetadata.name)}</h3>
+                                    ${this.userMetadata.nip05 ? `
+                                        <p class="nip05">${this.escapeHtml(this.userMetadata.nip05)}</p>
+                                    ` : ''}
+                                    ${this.userMetadata.about ? `
+                                        <p class="about">${this.escapeHtml(this.userMetadata.about)}</p>
+                                    ` : ''}
+                                    ${this.userMetadata.website ? `
+                                        <p class="website">
+                                            <a href="${this.escapeHtml(this.userMetadata.website)}" target="_blank" rel="noopener noreferrer">
+                                                ${this.escapeHtml(this.userMetadata.website)}
+                                            </a>
+                                        </p>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Generate preview HTML with metadata
             const previewHtml = `
                 <div class="nostr-preview-container">
+                    ${metadataHtml}
                     <div class="notice notice-success">
                         <p>Found ${events.length} posts (showing ${startIndex + 1}-${Math.min(endIndex, events.length)})</p>
                     </div>
@@ -402,6 +477,55 @@ const CONFIG = {
                     }
                     .page-info {
                         margin: 0 10px;
+                    }
+                    .nostr-user-metadata {
+                        margin-bottom: 20px;
+                        background: #fff;
+                        border: 1px solid #ccd0d4;
+                        border-radius: 4px;
+                        overflow: hidden;
+                    }
+                    .profile-header {
+                        position: relative;
+                    }
+                    .profile-banner img {
+                        width: 100%;
+                        height: 200px;
+                        object-fit: cover;
+                    }
+                    .profile-info {
+                        padding: 20px;
+                        display: flex;
+                        gap: 20px;
+                    }
+                    .profile-picture img {
+                        width: 120px;
+                        height: 120px;
+                        border-radius: 60px;
+                        border: 4px solid #fff;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }
+                    .profile-details {
+                        flex: 1;
+                    }
+                    .profile-details h3 {
+                        margin: 0 0 10px 0;
+                        font-size: 1.5em;
+                    }
+                    .nip05 {
+                        color: #666;
+                        margin: 5px 0;
+                    }
+                    .about {
+                        margin: 10px 0;
+                        white-space: pre-wrap;
+                    }
+                    .website a {
+                        color: #2271b1;
+                        text-decoration: none;
+                    }
+                    .website a:hover {
+                        text-decoration: underline;
                     }
                 </style>
             `;
@@ -519,6 +643,16 @@ const CONFIG = {
                 console.error('Import request failed for event', cleanEvent.id, ':', error);
                 throw new Error(error.responseJSON?.data?.message || error.message || 'Import failed');
             }
+        }
+
+        // Add helper method for HTML escaping
+        escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
         }
     }
 
