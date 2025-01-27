@@ -35,7 +35,6 @@ const CONFIG = {
                 "wss://relay.nostr.band",
                 "wss://relay.primal.net",
                 "wss://relay.damus.io",
-                "wss://nostr.wine"
             ];
         }
 
@@ -45,12 +44,16 @@ const CONFIG = {
                 return;
             }
 
-            // Use defaultRelays as fallback if nostrImport.relays is empty
-            const relays = (nostrImport.relays && nostrImport.relays.length > 0) 
-                ? nostrImport.relays 
+            // Log the available relay configuration
+            console.log('nostrImport configuration:', window.nostrImport);
+            
+            // Use configured relays with strong validation
+            const configuredRelays = window.nostrImport?.relays;
+            const relays = Array.isArray(configuredRelays) && configuredRelays.length > 0
+                ? configuredRelays
                 : this.defaultRelays;
             
-            console.log('Initializing NDK with relays:', relays);
+            console.log('Using relays:', relays);
 
             this.ndk = new NDK({
                 explicitRelayUrls: relays,

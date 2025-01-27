@@ -63,27 +63,38 @@ class Nostr_Import_Handler {
             true
         );
 
-        // Get relay URLs and ensure they're properly formatted
+        // Get relay URLs and add debug logging
         $relay_urls = $this->get_relay_urls();
+        error_log('Configured relay URLs: ' . print_r($relay_urls, true));
         
         wp_localize_script('nostr-import', 'nostrImport', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('nostr_import_nonce'),
-            'relays' => array_values($relay_urls) // Ensure we pass an array
+            'relays' => $relay_urls // Pass as direct array
         ));
     }
 
     private function get_relay_urls() {
-        $relays_option = get_option('nostr_import_relays', implode("\n", $this->default_relays));
-        $relays_array = array_filter(array_map('trim', explode("\n", $relays_option)));
+        // Get the saved relays option and split by newlines
+        $relays_option = get_option('nostr_import_relays');
         
-        // Ensure we have at least the default relays if none are configured
-        if (empty($relays_array)) {
-            $relays_array = $this->default_relays;
+        // If the option exists and isn't empty, process it
+        if (!empty($relays_option)) {
+            $relays_array = array_filter(
+                array_map('trim', explode("\n", $relays_option)),
+                function($url) {
+                    return !empty($url) && filter_var($url, FILTER_VALIDATE_URL);
+                }
+            );
+            
+            // Only return default relays if no valid URLs were found
+            if (!empty($relays_array)) {
+                return array_values($relays_array);
+            }
         }
         
-        // Sanitize URLs and remove empty values
-        return array_filter(array_map('esc_url_raw', $relays_array));
+        // Return default relays as fallback
+        return $this->default_relays;
     }
 
     public function render_admin_page() {
