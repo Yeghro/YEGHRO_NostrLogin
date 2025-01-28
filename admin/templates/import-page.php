@@ -42,6 +42,58 @@ if (!defined('ABSPATH')) {
                     <p class="description"><?php echo esc_html__('Optional: Filter by tag (without #)', 'nostr-login'); ?></p>
                 </td>
             </tr>
+            <tr>
+                <th scope="row">
+                    <label for="post_category"><?php echo esc_html__('Category', 'nostr-login'); ?></label>
+                </th>
+                <td>
+                    <?php
+                    $categories = get_categories(array(
+                        'hide_empty' => false,
+                        'orderby' => 'name',
+                        'order' => 'ASC'
+                    ));
+                    if (!empty($categories)) : ?>
+                        <select id="post_category" name="post_category[]" multiple="multiple" class="regular-text">
+                            <?php foreach ($categories as $category) : ?>
+                                <option value="<?php echo esc_attr($category->term_id); ?>">
+                                    <?php echo esc_html($category->name); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <p class="description"><?php echo esc_html__('Optional: Select categories for imported posts. Hold Ctrl/Cmd to select multiple.', 'nostr-login'); ?></p>
+                    <?php else : ?>
+                        <div class="notice notice-warning inline">
+                            <p><?php echo esc_html__('No categories found.', 'nostr-login'); ?></p>
+                        </div>
+                    <?php endif; ?>
+                    
+                    <?php if (current_user_can('manage_categories')) : ?>
+                        <p class="description">
+                            <?php 
+                            $categories_url = admin_url('edit-tags.php?taxonomy=category');
+                            echo sprintf(
+                                /* translators: %s: URL to categories management page */
+                                wp_kses(
+                                    __('You can manage your categories in the <a href="%s">WordPress Categories</a> section.', 'nostr-login'),
+                                    array('a' => array('href' => array()))
+                                ),
+                                esc_url($categories_url)
+                            ); 
+                            ?>
+                        </p>
+                    <?php endif; ?>
+                </td>
+            </tr>
+            <tr>
+                <th scope="row">
+                    <label for="import_comments"><?php echo esc_html__('Import Comments', 'nostr-login'); ?></label>
+                </th>
+                <td>
+                    <input type="checkbox" id="import_comments" name="import_comments" value="1">
+                    <p class="description"><?php echo esc_html__('Import associated comments for each post.', 'nostr-login'); ?></p>
+                </td>
+            </tr>
         </table>
 
         <div class="nostr-loading-indicator" style="display: none;">

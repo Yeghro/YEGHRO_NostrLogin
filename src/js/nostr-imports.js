@@ -205,31 +205,144 @@ const CONFIG = {
         }
 
         async fetchEventsWithTimeout(filter) {
+            console.log('Starting event fetch with filter:', filter);
             const subscription = this.ndk.subscribe(filter, { closeOnEose: true });
             const events = new Set();
             const tagFilter = $('input[name="tag_filter"]').val();
+            const importComments = $('#import_comments').is(':checked');
+            console.log('Import comments checkbox state:', importComments);
+            const commentEvents = new Map();
 
+            // Step 1: First collect all the events
             try {
                 await new Promise((resolve) => {
                     subscription.on('event', (event) => {
+                        console.log('Received event:', event.id);
                         if (this.eventMatchesTagFilter(event, tagFilter)) {
                             events.add(event);
+                            console.log('Event added to collection:', event.id);
                         }
                     });
 
                     subscription.on('eose', () => {
-                        console.log(`EOSE received. Total events: ${events.size}`);
+                        console.log(`EOSE received. Total events collected: ${events.size}`);
                         resolve();
                     });
 
-                    // Set timeout
-                    setTimeout(resolve, 5000);
+                    setTimeout(() => {
+                        console.log('Timeout reached for event fetch');
+                        resolve();
+                    }, CONFIG.TIMEOUT_MS);
                 });
-            } finally {
-                console.log('Subscription completed');
-            }
 
-            return Array.from(events).map(this.processEvent);
+                // Step 2: If comments are enabled, fetch comments for all collected events
+                if (importComments && events.size > 0) {
+                    console.log('Comment import is enabled and we have events to process');
+                    const eventIds = Array.from(events).map(e => e.id);
+                    console.log('Events to fetch comments for:', eventIds);
+                    
+                    const commentFilter = {
+                        kinds: [1],
+                        '#e': eventIds,
+                        limit: 100
+                    };
+
+                    if (filter.since) {
+                        commentFilter.since = filter.since;
+                    }
+                    if (filter.until) {
+                        commentFilter.until = filter.until;
+                    }
+
+                    console.log('Fetching comments with filter:', commentFilter);
+
+                    const commentSubscription = this.ndk.subscribe(commentFilter, { 
+                        closeOnEose: true
+                    });
+
+                    await new Promise((resolve) => {
+                        commentSubscription.on('event', (comment) => {
+                            console.log('Received potential comment:', comment.id);
+                            
+                            // Find which event this comment belongs to
+                            const parentEventId = comment.tags.find(tag => 
+                                tag[0] === 'e' && eventIds.includes(tag[1])
+                            )?.[1];
+
+                            if (parentEventId) {
+                                if (!commentEvents.has(parentEventId)) {
+                                    commentEvents.set(parentEventId, new Set());
+                                    console.log(`Created new comment collection for event ${parentEventId}`);
+                                }
+                                commentEvents.get(parentEventId).add(comment);
+                                console.log(`Added comment ${comment.id} to event ${parentEventId}`);
+                            } else {
+                                console.log(`Comment ${comment.id} did not match any parent events`);
+                            }
+                        });
+
+                        commentSubscription.on('eose', () => {
+                            console.log('Comment fetch EOSE received');
+                            console.log('Final comment counts:', Array.from(commentEvents.entries()).map(
+                                ([eventId, comments]) => `${eventId}: ${comments.size} comments`
+                            ));
+                            resolve();
+                        });
+
+                        setTimeout(() => {
+                            console.log('Timeout reached for comment fetch');
+                            resolve();
+                        }, CONFIG.TIMEOUT_MS);
+                    });
+                } else {
+                    console.log('Skipping comment fetch:', {
+                        importCommentsEnabled: importComments,
+                        eventCount: events.size
+                    });
+                }
+
+                // Process all events with their comments
+                const processedEvents = Array.from(events).map(event => {
+                    console.log(`Processing event ${event.id}`);
+                    const processed = this.processEvent(event);
+                    if (commentEvents.has(event.id)) {
+                        const eventComments = Array.from(commentEvents.get(event.id))
+                            .map(comment => this.processEvent(comment));
+                        processed.comments = eventComments;
+                        console.log(`Processed ${eventComments.length} comments for event ${event.id}`);
+                    } else {
+                        console.log(`No comments found for event ${event.id}`);
+                    }
+                    return processed;
+                });
+
+                console.log('Final processed events:', processedEvents);
+                return processedEvents;
+
+            } catch (error) {
+                console.error('Error during event/comment fetch:', error);
+                throw error;
+            }
+        }
+
+        validateComment(comment, parentEvent) {
+            try {
+                console.log(`Validating comment ${comment.id} for parent ${parentEvent.id}`);
+                console.log('Comment tags:', comment.tags);
+                
+                // Check if the comment has an e-tag referencing the parent event
+                const isValid = comment.tags.some(tag => {
+                    const isValid = tag[0] === 'e' && tag[1] === parentEvent.id;
+                    console.log(`Tag validation: ${tag[0]} === 'e' && ${tag[1]} === ${parentEvent.id} = ${isValid}`);
+                    return isValid;
+                });
+
+                console.log(`Comment validation result: ${isValid}`);
+                return isValid;
+            } catch (error) {
+                console.error('Error validating comment:', error);
+                return false;
+            }
         }
 
         eventMatchesTagFilter(event, tagFilter) {
@@ -255,57 +368,47 @@ const CONFIG = {
             };
         }
 
-        // Add pagination controls
-        addPaginationControls($container, events) {
-            const totalPages = Math.ceil(events.length / CONFIG.MAX_EVENTS_PER_PAGE);
-            
-            const paginationHtml = `
-                <div class="nostr-pagination">
-                    <button class="button prev-page" ${this.currentPage === 1 ? 'disabled' : ''}>
-                        Previous
-                    </button>
-                    <span class="page-info">Page ${this.currentPage} of ${totalPages}</span>
-                    <button class="button next-page" ${this.currentPage === totalPages ? 'disabled' : ''}>
-                        Next
-                    </button>
-                </div>
-            `;
-            
-            $container.append(paginationHtml);
-            
-            // Add pagination event listeners
-            $container.find('.prev-page').on('click', () => this.changePage('prev', events));
-            $container.find('.next-page').on('click', () => this.changePage('next', events));
-        }
+        // Add new method to format the post content with comments
+        formatPostWithComments(event, comments) {
+            let content = event.content;
 
-        // Handle page changes
-        changePage(direction, events) {
-            if (direction === 'prev' && this.currentPage > 1) {
-                this.currentPage--;
-            } else if (direction === 'next' && this.currentPage < Math.ceil(events.length / CONFIG.MAX_EVENTS_PER_PAGE)) {
-                this.currentPage++;
+            if (comments && comments.length > 0) {
+                content += '\n\n---\nComments:\n\n';
+                
+                // Sort comments by creation time
+                const sortedComments = comments.sort((a, b) => a.created_at - b.created_at);
+                
+                sortedComments.forEach(comment => {
+                    const date = new Date(comment.created_at * 1000).toLocaleString();
+                    content += `From: ${comment.pubkey}\n`;
+                    content += `Date: ${date}\n`;
+                    content += `${comment.content}\n\n`;
+                });
             }
-            
-            const $preview = $('#preview-content');
-            this.updatePreviewContent($preview, events);
+
+            return content;
         }
 
-        // Modified updatePreviewContent with pagination
+        // Modify updatePreviewContent to show comments inline
         updatePreviewContent($preview, events, filter) {
             const startIndex = (this.currentPage - 1) * CONFIG.MAX_EVENTS_PER_PAGE;
             const endIndex = startIndex + CONFIG.MAX_EVENTS_PER_PAGE;
             const paginatedEvents = events.slice(startIndex, endIndex);
 
-            const processedEvents = Array.from(paginatedEvents).map(event => ({
-                id: event.id,
-                content: event.content,
-                created_at: event.created_at,
-                pubkey: event.pubkey,
-                tags: event.tags,
-                seen_on: Array.from(event.seenOn || [])
-            }));
+            const processedEvents = Array.from(paginatedEvents).map(event => {
+                const processed = {
+                    id: event.id,
+                    content: event.comments && event.comments.length > 0 
+                        ? this.formatPostWithComments(event, event.comments)
+                        : event.content,
+                    created_at: event.created_at,
+                    pubkey: event.pubkey,
+                    tags: event.tags,
+                    seen_on: Array.from(event.seenOn || [])
+                };
+                return processed;
+            });
 
-            // Store the processed events for import
             this.events = processedEvents;
 
             console.log(`Processed ${processedEvents.length} events`);
@@ -555,8 +658,7 @@ const CONFIG = {
             
             if (!this.events || !this.events.length) {
                 console.error('No events to import');
-                $('#import-status').html(`
-                    <div class="notice notice-error">
+                $('#import-status').html(`                    <div class="notice notice-error">
                         <p>No events to import. Please preview first.</p>
                     </div>
                 `);
@@ -566,6 +668,7 @@ const CONFIG = {
             const $progress = $('#import-progress');
             const $status = $('#import-status');
             const total = this.events.length;
+            const categories = $('#post_category').val(); // Get selected categories
             
             console.log(`Preparing to import ${total} events`);
             $progress.show();
@@ -583,7 +686,7 @@ const CONFIG = {
                 $status.text(`Importing event ${i + 1} of ${total}...`);
                 
                 try {
-                    const response = await this.importEvent(event);
+                    const response = await this.importEvent(event, categories);
                     console.log(`Successfully imported event ${i + 1}:`, response);
                     successCount++;
                     
@@ -606,7 +709,7 @@ const CONFIG = {
             $status.text(`Import complete! Successfully imported ${successCount} events.`);
         }
 
-        async importEvent(event) {
+        async importEvent(event, categories) {
             console.log('Preparing event for import:', event.id);
             
             // Create a clean event object with only the needed properties
@@ -617,10 +720,11 @@ const CONFIG = {
                 kind: event.kind,
                 content: event.content,
                 tags: event.tags,
-                sig: event.sig
+                sig: event.sig,
+                comments: event.comments || [] // Add comments if they exist
             };
-            
-            console.log('Sending import request for event:', cleanEvent.id);
+
+            console.log(`Event ${event.id} has ${cleanEvent.comments.length} comments to import`);
             
             try {
                 const response = await $.ajax({
@@ -629,7 +733,8 @@ const CONFIG = {
                     data: {
                         action: 'nostr_import_posts',
                         nonce: nostrImport.nonce,
-                        event: JSON.stringify(cleanEvent)
+                        event: JSON.stringify(cleanEvent),
+                        categories: JSON.stringify(categories)
                     }
                 });
                 
@@ -654,6 +759,41 @@ const CONFIG = {
                 .replace(/"/g, "&quot;")
                 .replace(/'/g, "&#039;");
         }
+
+        // Add pagination controls
+        addPaginationControls($container, events) {
+            const totalPages = Math.ceil(events.length / CONFIG.MAX_EVENTS_PER_PAGE);
+            
+            const paginationHtml = `
+                <div class="nostr-pagination">
+                    <button class="button prev-page" ${this.currentPage === 1 ? 'disabled' : ''}>
+                        Previous
+                    </button>
+                    <span class="page-info">Page ${this.currentPage} of ${totalPages}</span>
+                    <button class="button next-page" ${this.currentPage === totalPages ? 'disabled' : ''}>
+                        Next
+                    </button>
+                </div>
+            `;
+            
+            $container.append(paginationHtml);
+            
+            // Add pagination event listeners
+            $container.find('.prev-page').on('click', () => this.changePage('prev', events));
+            $container.find('.next-page').on('click', () => this.changePage('next', events));
+        }
+
+        // Handle page changes
+        changePage(direction, events) {
+            if (direction === 'prev' && this.currentPage > 1) {
+                this.currentPage--;
+            } else if (direction === 'next' && this.currentPage < Math.ceil(events.length / CONFIG.MAX_EVENTS_PER_PAGE)) {
+                this.currentPage++;
+            }
+            
+            const $preview = $('#preview-content');
+            this.updatePreviewContent($preview, events);
+        }
     }
 
     // Initialize when document is ready
@@ -675,3 +815,4 @@ const CONFIG = {
     });
 
 })(jQuery);
+

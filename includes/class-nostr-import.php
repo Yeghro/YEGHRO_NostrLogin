@@ -162,17 +162,28 @@ class Nostr_Import_Handler {
             wp_send_json_error(array('message' => __('Permission denied.', 'nostr-login')));
         }
 
-        $event_json = sanitize_text_field(wp_unslash($_POST['event'] ?? ''));
+        $event_json = wp_unslash($_POST['event'] ?? '');
         $event = json_decode($event_json, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
+            error_log('Failed to decode event JSON: ' . json_last_error_msg());
+            error_log('Received event JSON: ' . $event_json);
             wp_send_json_error(array('message' => __('Invalid event data.', 'nostr-login')));
         }
 
-        // Create post from event
+        error_log('Processing event with ' . 
+            (isset($event['comments']) ? count($event['comments']) : 0) . 
+            ' comments');
+
+        // Create post from event with comments included in content
         $post_data = array(
-            'post_content' => wp_kses_post($event['content']),
-            'post_title' => wp_trim_words($event['content'], 10, '...'), // Create title from content
+            'post_content' => wp_kses_post($event['content']), // Content now includes formatted comments
+            'post_title' => wp_trim_words(
+                // Strip HTML for title generation
+                strip_tags($event['content']), 
+                10, 
+                '...'
+            ),
             'post_status' => get_option('nostr_import_post_status', 'draft'),
             'post_author' => get_current_user_id(),
             'post_date' => date('Y-m-d H:i:s', $event['created_at']),
@@ -182,14 +193,27 @@ class Nostr_Import_Handler {
         $post_id = wp_insert_post($post_data);
 
         if (is_wp_error($post_id)) {
+            error_log('Failed to create post: ' . $post_id->get_error_message());
             wp_send_json_error(array('message' => $post_id->get_error_message()));
         }
 
         // Store Nostr metadata
         update_post_meta($post_id, 'nostr_event_id', sanitize_text_field($event['id']));
         update_post_meta($post_id, 'nostr_pubkey', sanitize_text_field($event['pubkey']));
+        
+        // Store comment count metadata
+        if (!empty($event['comments'])) {
+            update_post_meta($post_id, 'nostr_comment_count', count($event['comments']));
+        }
 
-        // Handle tags
+        // Handle categories and tags
+        if (isset($_POST['categories'])) {
+            $categories = array_map('intval', json_decode(wp_unslash($_POST['categories']), true));
+            if (!empty($categories)) {
+                wp_set_post_categories($post_id, $categories, false);
+            }
+        }
+
         if (!empty($event['tags'])) {
             $tags = array_filter($event['tags'], function($tag) {
                 return $tag[0] === 't';
@@ -204,8 +228,91 @@ class Nostr_Import_Handler {
         }
 
         wp_send_json_success(array(
-            'message' => __('Post imported successfully.', 'nostr-login'),
+            'message' => sprintf(
+                __('Post imported successfully with %d comments included.', 'nostr-login'),
+                !empty($event['comments']) ? count($event['comments']) : 0
+            ),
             'post_id' => $post_id
         ));
+    }
+
+    private function validateComment($comment, $parentEvent) {
+        if (empty($comment['id']) || empty($comment['content']) || empty($comment['created_at'])) {
+            error_log('Comment validation failed: missing required fields');
+            return false;
+        }
+
+        // Verify the comment references the parent event
+        $hasValidReference = false;
+        if (!empty($comment['tags'])) {
+            foreach ($comment['tags'] as $tag) {
+                if ($tag[0] === 'e' && $tag[1] === $parentEvent['id']) {
+                    $hasValidReference = true;
+                    break;
+                }
+            }
+        }
+
+        if (!$hasValidReference) {
+            error_log('Comment validation failed: no valid reference to parent event');
+            return false;
+        }
+
+        return true;
+    }
+
+    private function import_comment($comment, $post_id) {
+        error_log('Processing comment for post ' . $post_id . ': ' . print_r($comment, true));
+
+        $commentdata = array(
+            'comment_post_ID' => $post_id,
+            'comment_content' => wp_kses_post($comment['content']),
+            'comment_date' => date('Y-m-d H:i:s', $comment['created_at']),
+            'comment_approved' => 1,
+            'comment_type' => '', // Use default comment type since these are regular kind:1 notes
+        );
+
+        // Try to get author information from metadata
+        $author_name = 'Nostr User';
+        $author_url = '';
+        
+        // Add the comment author's pubkey as the author URL
+        if (!empty($comment['pubkey'])) {
+            $author_url = 'nostr:' . sanitize_text_field($comment['pubkey']);
+            $author_name = substr($comment['pubkey'], 0, 8) . '...'; // Use truncated pubkey as name
+        }
+
+        // Add author data
+        $commentdata['comment_author'] = $author_name;
+        $commentdata['comment_author_url'] = $author_url;
+        
+        error_log('Inserting comment with data: ' . print_r($commentdata, true));
+        
+        // Store the comment and get the comment ID
+        $comment_id = wp_insert_comment($commentdata);
+
+        if ($comment_id) {
+            error_log('Successfully created comment with ID: ' . $comment_id);
+            
+            // Store Nostr metadata for the comment
+            add_comment_meta($comment_id, 'nostr_event_id', sanitize_text_field($comment['id']));
+            add_comment_meta($comment_id, 'nostr_pubkey', sanitize_text_field($comment['pubkey']));
+            
+            // Store the parent event ID reference
+            $parent_event_id = '';
+            foreach ($comment['tags'] as $tag) {
+                if ($tag[0] === 'e') {
+                    $parent_event_id = $tag[1];
+                    break;
+                }
+            }
+            if ($parent_event_id) {
+                add_comment_meta($comment_id, 'nostr_parent_event_id', sanitize_text_field($parent_event_id));
+            }
+        } else {
+            error_log('Failed to create comment');
+        }
+
+        return $comment_id;
     }
 }
