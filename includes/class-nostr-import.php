@@ -64,10 +64,14 @@ class Nostr_Import_Handler {
             return;
         }
 
+        // Add WordPress media elements
+        wp_enqueue_style('wp-mediaelement');
+        wp_enqueue_script('wp-mediaelement');
+        
         wp_enqueue_script(
             'nostr-import',
             plugins_url('assets/js/nostr-imports.min.js', dirname(__FILE__)),
-            array('jquery'),
+            array('jquery', 'wp-mediaelement'), // Add mediaelement as dependency
             '1.0.0',
             true
         );
@@ -188,7 +192,7 @@ class Nostr_Import_Handler {
             ' comments');
 
         // Process content and import images
-        $processed_content = $this->process_content_with_images($event['content']);
+        $processed_content = $this->process_content_with_media($event['content'], $event);
 
         // Create post from event with comments included in content
         $post_data = array(
@@ -268,7 +272,7 @@ class Nostr_Import_Handler {
                 return '';
             }
             
-            $image_id = $this->import_image_to_media_library($url);
+            $image_id = $this->import_media_to_library($url);
             
             if ($image_id) {
                 return sprintf(
@@ -292,11 +296,12 @@ class Nostr_Import_Handler {
     /**
      * Import an image from URL to WordPress media library
      */
-    private function import_image_to_media_library($url) {
+    private function import_media_to_library($url, $type = 'image') {
         try {
             // Validate URL before processing
             $url = esc_url_raw($url);
             if (!$url || !wp_http_validate_url($url)) {
+                error_log('Invalid media URL: ' . $url);
                 return false;
             }
             
@@ -309,42 +314,68 @@ class Nostr_Import_Handler {
             $tmp = download_url($url);
             
             if (is_wp_error($tmp)) {
-                nostr_login_debug_log(sprintf(
-                    'Failed to download image from %s: %s',
-                    esc_url($url),
-                    $tmp->get_error_message()
-                ));
+                error_log('Failed to download media: ' . $tmp->get_error_message());
                 return false;
             }
 
-            // Validate mime type
-            $file_type = wp_check_filetype(basename($url));
-            if (!$file_type['type'] || !in_array($file_type['type'], array('image/jpeg', 'image/png', 'image/gif', 'image/webp'))) {
-                @unlink($tmp);
-                nostr_login_debug_log(sprintf(
-                    'Invalid image type for %s: %s',
-                    esc_url($url),
-                    $file_type['type'] ?? 'unknown'
-                ));
-                return false;
-            }
-
-            // Validate file size before processing
-            $max_size = wp_max_upload_size();
-            if (@filesize($tmp) > $max_size) {
-                @unlink($tmp);
-                nostr_login_debug_log(sprintf(
-                    'File size exceeds maximum upload limit for %s',
-                    esc_url($url)
-                ));
-                return false;
-            }
-
-            // Set file parameters
-            $file_array = array(
-                'name' => basename($url),
-                'tmp_name' => $tmp
+            // Define allowed mime types with more comprehensive video support
+            $allowed_types = array(
+                'image' => array(
+                    'image/jpeg',
+                    'image/png',
+                    'image/gif',
+                    'image/webp',
+                    'image/avif',
+                ),
+                'video' => array(
+                    'video/mp4',
+                    'video/webm',
+                    'video/ogg',
+                    'video/quicktime',
+                    'video/x-m4v',
+                    'video/mpeg',
+                    'video/x-msvideo'
+                ),
             );
+            
+            // Get file info with better MIME type detection
+            $file_info = wp_check_filetype(basename($url), null);
+            $mime_type = $file_info['type'];
+            
+            if (!$mime_type) {
+                // Fallback MIME type detection
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $mime_type = finfo_file($finfo, $tmp);
+                finfo_close($finfo);
+            }
+            
+            error_log("Detected MIME type for $url: $mime_type");
+            
+            // Validate mime type
+            if (!$mime_type || !in_array($mime_type, $allowed_types[$type])) {
+                @unlink($tmp);
+                error_log("Invalid $type mime type: $mime_type");
+                return false;
+            }
+
+            // Set file parameters with proper extension
+            $file_array = array(
+                'name' => sanitize_file_name(
+                    pathinfo($url, PATHINFO_FILENAME) . '.' . $file_info['ext']
+                ),
+                'tmp_name' => $tmp,
+                'type' => $mime_type,
+            );
+
+            // Add special handling for video uploads
+            add_filter('upload_mimes', function($mimes) use ($allowed_types) {
+                return array_merge($mimes, array_combine(
+                    array_map(function($mime) { 
+                        return '.' . explode('/', $mime)[1]; 
+                    }, $allowed_types['video']),
+                    $allowed_types['video']
+                ));
+            });
 
             // Do the validation and storage stuff
             $id = media_handle_sideload($file_array, 0);
@@ -353,19 +384,77 @@ class Nostr_Import_Handler {
             @unlink($tmp);
 
             if (is_wp_error($id)) {
-                error_log('Failed to import image: ' . $id->get_error_message());
+                error_log('Failed to import media: ' . $id->get_error_message());
                 return false;
+            }
+
+            // Add extra meta for videos
+            if ($type === 'video') {
+                update_post_meta($id, '_wp_attachment_is_nostr_video', '1');
+                wp_update_attachment_metadata($id, wp_generate_attachment_metadata($id, get_attached_file($id)));
             }
 
             return $id;
         } catch (Exception $e) {
-            nostr_login_debug_log(sprintf(
-                'Exception while importing image %s: %s',
-                esc_url($url),
-                $e->getMessage()
-            ));
+            error_log('Exception while importing media: ' . $e->getMessage());
+            if (isset($tmp) && file_exists($tmp)) {
+                @unlink($tmp);
+            }
             return false;
         }
+    }
+
+    // Add SVG validation
+    private function validate_svg($file) {
+        // Read SVG file content
+        $content = file_get_contents($file);
+        
+        // Basic security checks
+        if (false === $content) {
+            return false;
+        }
+        
+        // Check for suspicious content
+        $suspicious = array(
+            'script',
+            'onclick',
+            'onload',
+            'onunload',
+            'onerror',
+            'eval',
+            'javascript:',
+            'alert(',
+        );
+        
+        foreach ($suspicious as $pattern) {
+            if (stripos($content, $pattern) !== false) {
+                nostr_login_debug_log('Suspicious SVG content detected');
+                return false;
+            }
+        }
+        
+        return true;
+    }
+
+    // Modify process_content to handle both images and videos
+    public function process_content_with_media($content, $event) {
+        // Process regular content first
+        $content = $this->process_content_with_images($content);
+        
+        // Add videos at the end of the content if they exist
+        if (!empty($event['media']['videos'])) {
+            foreach ($event['media']['videos'] as $video_url) {
+                // Add video URL as a WordPress video block
+                $content .= "\n\n<!-- wp:video -->\n";
+                $content .= sprintf(
+                    '<figure class="wp-block-video"><video controls src="%s"></video></figure>',
+                    esc_url($video_url)
+                );
+                $content .= "\n<!-- /wp:video -->\n";
+            }
+        }
+        
+        return $content;
     }
 
     private function validateComment($comment, $parentEvent) {
@@ -611,6 +700,34 @@ class Nostr_Import_Handler {
                 border: 1px solid #ddd;
                 border-radius: 4px;
                 margin: 10px 0;
+            }
+
+            /* Improved video styling */
+            .wp-block-video {
+                max-width: 800px;
+                margin: 2em auto;
+                position: relative;
+                aspect-ratio: 16/9;
+            }
+            
+            .wp-block-video video {
+                width: 100%;
+                height: 100%;
+                display: block;
+                border-radius: 8px;
+                background: #000;
+                object-fit: contain;
+            }
+            
+            /* Ensure controls are visible */
+            .wp-block-video video::-webkit-media-controls {
+                display: flex !important;
+                visibility: visible !important;
+            }
+            
+            .wp-block-video video::-webkit-media-controls-enclosure {
+                display: flex !important;
+                visibility: visible !important;
             }
         </style>
         <?php

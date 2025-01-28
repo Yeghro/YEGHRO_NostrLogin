@@ -400,41 +400,72 @@ const CONFIG = {
         }
 
         processEvent(event) {
+            // Extract media URLs from content and tags
+            const mediaInfo = this.extractMediaInfo(event);
+            
             return {
                 id: event.id,
                 content: event.content,
                 created_at: event.created_at,
                 pubkey: event.pubkey,
                 tags: event.tags,
-                seen_on: Array.from(event.seenOn || [])
+                seen_on: Array.from(event.seenOn || []),
+                media: mediaInfo // Add media information to the processed event
             };
         }
 
-        // Add new method to format the post content with comments
-        formatPostWithComments(event, comments) {
-            let content = event.content;
+        // Simplified extractMediaInfo to just collect URLs
+        extractMediaInfo(event) {
+            const mediaInfo = {
+                images: [],
+                videos: []
+            };
 
-            if (comments && comments.length > 0) {
-                content += '\n\n---\nComments:\n\n';
-                
-                const sortedComments = comments.sort((a, b) => a.created_at - b.created_at);
-                
-                sortedComments.forEach(comment => {
-                    const date = new Date(comment.created_at * 1000).toLocaleString();
-                    const metadata = comment.metadata || {};
-                    const displayName = metadata.display_name || metadata.name || 
-                                      (comment.pubkey ? comment.pubkey.substring(0, 8) + '...' : 'Anonymous');
-                    
-                    content += `From: ${displayName}\n`;
-                    content += `Date: ${date}\n`;
-                    content += `${comment.content}\n\n`;
-                });
-            }
+            // Check media tags
+            event.tags.forEach(tag => {
+                if (tag[0] === 'media' || tag[0] === 'video') {
+                    const url = tag[1];
+                    if (url && this.isVideoUrl(url)) {
+                        mediaInfo.videos.push(url);
+                    }
+                }
+            });
 
-            return content;
+            // Check content for video URLs
+            const contentVideos = this.extractVideoUrlsFromContent(event.content);
+            contentVideos.forEach(url => {
+                if (!mediaInfo.videos.includes(url)) {
+                    mediaInfo.videos.push(url);
+                }
+            });
+
+            return mediaInfo;
         }
 
-        // Modify updatePreviewContent to show comments inline
+        // Keep these helper methods for URL detection
+        isVideoUrl(url) {
+            const videoExtensions = [
+                '.mp4', '.webm', '.ogg', '.mov', 
+                '.m4v', '.mpeg', '.mpg', '.avi'
+            ];
+            
+            const lowercaseUrl = url.toLowerCase();
+            return videoExtensions.some(ext => lowercaseUrl.endsWith(ext));
+        }
+
+        extractVideoUrlsFromContent(content) {
+            const videoUrls = new Set();
+            const videoPattern = /(https?:\/\/[^\s<>"]+?\.(?:mp4|webm|ogg|mov|m4v|avi))/gi;
+            
+            let match;
+            while ((match = videoPattern.exec(content)) !== null) {
+                videoUrls.add(match[1]);
+            }
+
+            return Array.from(videoUrls);
+        }
+
+        // Modified updatePreviewContent to just show video URL count
         updatePreviewContent($preview, events, filter) {
             const startIndex = (this.currentPage - 1) * CONFIG.MAX_EVENTS_PER_PAGE;
             const endIndex = startIndex + CONFIG.MAX_EVENTS_PER_PAGE;
@@ -449,7 +480,8 @@ const CONFIG = {
                     created_at: event.created_at,
                     pubkey: event.pubkey,
                     tags: event.tags,
-                    seen_on: Array.from(event.seenOn || [])
+                    seen_on: Array.from(event.seenOn || []),
+                    media: event.media
                 };
                 return processed;
             });
@@ -530,6 +562,8 @@ const CONFIG = {
                         ${paginatedEvents.map(event => {
                             try {
                                 const commentCount = event.comments?.length || 0;
+                                const videoCount = event.media?.videos?.length || 0;
+                                
                                 return `
                                     <div class="nostr-preview-item">
                                         <div class="nostr-preview-checkbox">
@@ -549,6 +583,11 @@ const CONFIG = {
                                                 'No content'
                                             }
                                         </div>
+                                        ${videoCount > 0 ? `
+                                            <div class="nostr-preview-video-count">
+                                                <strong>Videos:</strong> ${videoCount}
+                                            </div>
+                                        ` : ''}
                                         <div class="nostr-preview-comments">
                                             <strong>Comments:</strong> ${commentCount}
                                         </div>
@@ -583,6 +622,9 @@ const CONFIG = {
             }
             
             $('#import-preview').show();
+
+            // After updating the preview content, initialize media players
+            this.initializeMediaPlayers($preview);
         }
 
         initializeCheckboxes($preview) {
@@ -686,6 +728,9 @@ const CONFIG = {
                     ${failureCount > 0 ? `<p>Failed to import ${failureCount} events.</p>` : ''}
                 </div>
             `);
+
+            // Initialize media players in the imported content
+            this.initializeMediaPlayers($('#import-status'));
         }
 
         async importEvent(event, categories) {
@@ -700,7 +745,8 @@ const CONFIG = {
                 content: event.content,
                 tags: event.tags,
                 sig: event.sig,
-                comments: event.comments || [] // Add comments if they exist
+                comments: event.comments || [], // Add comments if they exist
+                media: event.media
             };
 
             console.log(`Event ${event.id} has ${cleanEvent.comments.length} comments to import`);
@@ -772,6 +818,38 @@ const CONFIG = {
             
             const $preview = $('#preview-content');
             this.updatePreviewContent($preview, events);
+        }
+
+        // Modified initializeMediaPlayers for better video handling
+        initializeMediaPlayers($container) {
+            $container.find('video').each(function() {
+                const $video = $(this);
+                
+                // Remove any existing initialization
+                if ($video.data('initialized')) {
+                    return;
+                }
+
+                // Add error handling
+                $video.on('error', function(e) {
+                    console.error('Video error:', e);
+                    const $parent = $video.parent();
+                    $parent.append(`
+                        <div class="video-error">
+                            Error loading video. Please check the source.
+                        </div>
+                    `);
+                });
+
+                // Add loading state
+                $video.on('loadstart', function() {
+                    $video.addClass('loading');
+                }).on('canplay', function() {
+                    $video.removeClass('loading');
+                });
+
+                $video.data('initialized', true);
+            });
         }
     }
 
