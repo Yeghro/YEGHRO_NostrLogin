@@ -13,6 +13,10 @@ class Nostr_Import_Handler {
             "wss://relay.primal.net",
             "wss://relay.damus.io",
         ];
+
+        // Add custom CSS for imported images
+        add_action('wp_head', array($this, 'add_image_styles'));
+        add_action('admin_head', array($this, 'add_image_styles'));
     }
 
     public function init() {
@@ -175,9 +179,12 @@ class Nostr_Import_Handler {
             (isset($event['comments']) ? count($event['comments']) : 0) . 
             ' comments');
 
+        // Process content and import images
+        $processed_content = $this->process_content_with_images($event['content']);
+
         // Create post from event with comments included in content
         $post_data = array(
-            'post_content' => wp_kses_post($event['content']), // Content now includes formatted comments
+            'post_content' => wp_kses_post($processed_content), // Use processed content with embedded images
             'post_title' => wp_trim_words(
                 // Strip HTML for title generation
                 strip_tags($event['content']), 
@@ -234,6 +241,75 @@ class Nostr_Import_Handler {
             ),
             'post_id' => $post_id
         ));
+    }
+
+    /**
+     * Process content and import images into WordPress media library
+     */
+    private function process_content_with_images($content) {
+        // Regular expression to find image URLs
+        $pattern = '/(https?:\/\/[^\s<>"]+?\.(?:jpg|jpeg|gif|png|webp))/i';
+        
+        return preg_replace_callback($pattern, function($matches) {
+            $url = $matches[1];
+            $image_id = $this->import_image_to_media_library($url);
+            
+            if ($image_id) {
+                // Return the WordPress image HTML with responsive classes
+                return sprintf(
+                    '<figure class="wp-block-image size-large">%s</figure>',
+                    wp_get_attachment_image(
+                        $image_id,
+                        'large',
+                        false,
+                        array(
+                            'class' => 'wp-image-' . $image_id . ' nostr-imported-image',
+                            'style' => 'max-width: 100%; height: auto;'
+                        )
+                    )
+                );
+            }
+            
+            // Return original URL if import failed
+            return $url;
+        }, $content);
+    }
+
+    /**
+     * Import an image from URL to WordPress media library
+     */
+    private function import_image_to_media_library($url) {
+        // Required for wp_handle_sideload
+        require_once(ABSPATH . 'wp-admin/includes/media.php');
+        require_once(ABSPATH . 'wp-admin/includes/file.php');
+        require_once(ABSPATH . 'wp-admin/includes/image.php');
+
+        // Download URL to temp file
+        $tmp = download_url($url);
+        
+        if (is_wp_error($tmp)) {
+            error_log('Failed to download image: ' . $tmp->get_error_message());
+            return false;
+        }
+
+        // Set file parameters
+        $file_array = array(
+            'name' => basename($url),
+            'tmp_name' => $tmp
+        );
+
+        // Do the validation and storage stuff
+        $id = media_handle_sideload($file_array, 0);
+
+        // Cleanup temp file
+        @unlink($tmp);
+
+        if (is_wp_error($id)) {
+            error_log('Failed to import image: ' . $id->get_error_message());
+            return false;
+        }
+
+        return $id;
     }
 
     private function validateComment($comment, $parentEvent) {
@@ -326,5 +402,34 @@ class Nostr_Import_Handler {
         }
 
         return $comment_id;
+    }
+
+    public function add_image_styles() {
+        ?>
+        <style type="text/css">
+            /* Responsive image styling */
+            .nostr-imported-image {
+                max-width: 100% !important;
+                height: auto !important;
+                display: block !important;
+                margin: 1em auto !important;
+            }
+            
+            /* Container for better scaling */
+            .wp-block-image {
+                max-width: 800px !important; /* Maximum width for large screens */
+                margin-left: auto !important;
+                margin-right: auto !important;
+            }
+            
+            /* Ensure images don't overflow on mobile */
+            @media (max-width: 800px) {
+                .wp-block-image {
+                    width: 100% !important;
+                    padding: 0 10px !important;
+                }
+            }
+        </style>
+        <?php
     }
 }

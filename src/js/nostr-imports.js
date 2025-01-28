@@ -514,7 +514,6 @@ const CONFIG = {
                 `;
             }
 
-            // Generate preview HTML with metadata
             const previewHtml = `
                 <div class="nostr-preview-container">
                     ${metadataHtml}
@@ -573,136 +572,10 @@ const CONFIG = {
                         }).join('')}
                     </div>
                 </div>
-                <style>
-                    .nostr-preview-container {
-                        margin: 20px 0;
-                        padding: 15px;
-                        background: #fff;
-                        border: 1px solid #ccd0d4;
-                        border-radius: 4px;
-                    }
-                    .nostr-preview-item {
-                        display: flex;
-                        flex-direction: column;
-                        margin-bottom: 15px;
-                        padding: 10px;
-                        border: 1px solid #e5e5e5;
-                        background: #f8f9fa;
-                        border-radius: 3px;
-                    }
-                    .nostr-preview-checkbox {
-                        margin-bottom: 10px;
-                    }
-                    .nostr-preview-date,
-                    .nostr-preview-content,
-                    .nostr-preview-comments,
-                    .nostr-preview-tags {
-                        margin-bottom: 8px;
-                        word-break: break-word;
-                    }
-                    .nostr-tag {
-                        display: inline-block;
-                        background: #e9ecef;
-                        padding: 2px 6px;
-                        border-radius: 3px;
-                        margin: 2px;
-                        font-size: 0.9em;
-                    }
-                    .notice {
-                        margin: 0 0 15px 0;
-                        padding: 10px;
-                        border-left: 4px solid #72aee6;
-                    }
-                    .notice-success {
-                        border-color: #46b450;
-                        background: #ecf7ed;
-                    }
-                    .notice-error {
-                        border-color: #dc3232;
-                        background: #fbeaea;
-                    }
-                    .notice-warning {
-                        border-color: #ffb900;
-                        background: #fff8e5;
-                    }
-                    .notice-info {
-                        border-color: #00a0d2;
-                        background: #f0f6fc;
-                    }
-                    .nostr-loading-indicator {
-                        text-align: center;
-                        padding: 20px;
-                        display: none;
-                    }
-                    .nostr-pagination {
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        gap: 10px;
-                        margin-top: 20px;
-                    }
-                    .page-info {
-                        margin: 0 10px;
-                    }
-                    .nostr-user-metadata {
-                        margin-bottom: 20px;
-                        background: #fff;
-                        border: 1px solid #ccd0d4;
-                        border-radius: 4px;
-                        overflow: hidden;
-                    }
-                    .profile-header {
-                        position: relative;
-                    }
-                    .profile-banner img {
-                        width: 100%;
-                        height: 200px;
-                        object-fit: cover;
-                    }
-                    .profile-info {
-                        padding: 20px;
-                        display: flex;
-                        gap: 20px;
-                    }
-                    .profile-picture img {
-                        width: 120px;
-                        height: 120px;
-                        border-radius: 60px;
-                        border: 4px solid #fff;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    }
-                    .profile-details {
-                        flex: 1;
-                    }
-                    .profile-details h3 {
-                        margin: 0 0 10px 0;
-                        font-size: 1.5em;
-                    }
-                    .nip05 {
-                        color: #666;
-                        margin: 5px 0;
-                    }
-                    .about {
-                        margin: 10px 0;
-                        white-space: pre-wrap;
-                    }
-                    .website a {
-                        color: #2271b1;
-                        text-decoration: none;
-                    }
-                    .website a:hover {
-                        text-decoration: underline;
-                    }
-                    .nostr-preview-comments {
-                        margin-bottom: 8px;
-                        color: #666;
-                    }
-                </style>
             `;
             
             $preview.html(previewHtml);
             
-            // Add event listeners for checkboxes
             this.initializeCheckboxes($preview);
             
             if (events.length > CONFIG.MAX_EVENTS_PER_PAGE) {
