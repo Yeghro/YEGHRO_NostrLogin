@@ -113,27 +113,27 @@ const CONFIG = {
             if (this.isLoading) return;
             
             const $preview = $('#preview-content');
+            let currentFilter = null;
             
             try {
                 this.setLoading(true);
                 await this.rateLimitRequest();
                 
-                const filter = await this.createFilterFromForm();
+                currentFilter = await this.createFilterFromForm();
                 await this.initializeNDK();
                 
                 $preview.html('<div class="notice notice-info"><p>Fetching events...</p></div>');
                 
-                const events = await this.fetchEventsWithTimeout(filter);
-                this.updatePreviewContent($preview, events, filter);
+                const events = await this.fetchEventsWithTimeout(currentFilter);
+                this.updatePreviewContent($preview, events, currentFilter);
                 
-                // Add pagination controls if needed
                 if (events.length > CONFIG.MAX_EVENTS_PER_PAGE) {
                     this.addPaginationControls($preview, events);
                 }
                 
             } catch (error) {
                 console.error('Preview error:', error);
-                this.handlePreviewError($preview, error, filter);
+                this.handlePreviewError($preview, error, currentFilter);
             } finally {
                 this.setLoading(false);
             }
@@ -775,7 +775,37 @@ const CONFIG = {
             }
         }
 
-        // Add helper method for HTML escaping
+        // Add this new method
+        formatPostWithComments(post, comments) {
+            let formattedContent = post.content;
+            
+            if (comments && comments.length > 0) {
+                formattedContent += '\n\n<div class="nostr-comments-section">';
+                formattedContent += `<h3>Comments (${comments.length})</h3>`;
+                
+                comments.forEach(comment => {
+                    const authorName = comment.metadata?.name || 
+                                     comment.metadata?.display_name || 
+                                     comment.pubkey.substring(0, 8) + '...';
+                                     
+                    formattedContent += `
+                        <div class="nostr-comment">
+                            <div class="comment-author">${this.escapeHtml(authorName)}</div>
+                            <div class="comment-date">
+                                ${new Date(comment.created_at * 1000).toLocaleString()}
+                            </div>
+                            <div class="comment-content">${this.escapeHtml(comment.content)}</div>
+                        </div>
+                    `;
+                });
+                
+                formattedContent += '</div>';
+            }
+            
+            return formattedContent;
+        }
+
+        // Add this helper method for HTML escaping
         escapeHtml(unsafe) {
             return unsafe
                 .replace(/&/g, "&amp;")
