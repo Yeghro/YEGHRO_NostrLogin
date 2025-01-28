@@ -276,10 +276,22 @@ class Nostr_Import_Handler {
         $author_name = 'Nostr User';
         $author_url = '';
         
+        // Use metadata if available
+        if (!empty($comment['metadata'])) {
+            $metadata = $comment['metadata'];
+            $author_name = sanitize_text_field(
+                $metadata['display_name'] ?? 
+                $metadata['name'] ?? 
+                substr($comment['pubkey'], 0, 8) . '...'
+            );
+            
+            // Store the complete metadata
+            add_comment_meta($comment_id, 'nostr_author_metadata', wp_json_encode($metadata));
+        }
+        
         // Add the comment author's pubkey as the author URL
         if (!empty($comment['pubkey'])) {
             $author_url = 'nostr:' . sanitize_text_field($comment['pubkey']);
-            $author_name = substr($comment['pubkey'], 0, 8) . '...'; // Use truncated pubkey as name
         }
 
         // Add author data

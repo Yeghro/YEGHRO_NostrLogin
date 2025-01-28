@@ -301,17 +301,59 @@ const CONFIG = {
                     });
                 }
 
-                // Process all events with their comments
+                // After collecting comments, fetch metadata for all commenters
+                const commenterPubkeys = new Set();
+                commentEvents.forEach(comments => {
+                    comments.forEach(comment => {
+                        commenterPubkeys.add(comment.pubkey);
+                    });
+                });
+
+                console.log(`Fetching metadata for ${commenterPubkeys.size} commenters`);
+                
+                const commenterMetadata = new Map();
+                if (commenterPubkeys.size > 0) {
+                    const metadataFilter = {
+                        kinds: [0],
+                        authors: Array.from(commenterPubkeys),
+                        limit: commenterPubkeys.size
+                    };
+
+                    const metadataSubscription = this.ndk.subscribe(metadataFilter, { 
+                        closeOnEose: true 
+                    });
+
+                    await new Promise((resolve) => {
+                        metadataSubscription.on('event', (event) => {
+                            try {
+                                const metadata = JSON.parse(event.content);
+                                commenterMetadata.set(event.pubkey, metadata);
+                                console.log(`Got metadata for ${event.pubkey}:`, metadata);
+                            } catch (error) {
+                                console.error(`Error parsing metadata for ${event.pubkey}:`, error);
+                            }
+                        });
+
+                        metadataSubscription.on('eose', resolve);
+
+                        setTimeout(resolve, CONFIG.TIMEOUT_MS);
+                    });
+                }
+
+                // Process all events with their comments and metadata
                 const processedEvents = Array.from(events).map(event => {
-                    console.log(`Processing event ${event.id}`);
                     const processed = this.processEvent(event);
                     if (commentEvents.has(event.id)) {
                         const eventComments = Array.from(commentEvents.get(event.id))
-                            .map(comment => this.processEvent(comment));
+                            .map(comment => {
+                                const processedComment = this.processEvent(comment);
+                                // Add commenter metadata if available
+                                if (commenterMetadata.has(comment.pubkey)) {
+                                    processedComment.metadata = commenterMetadata.get(comment.pubkey);
+                                }
+                                return processedComment;
+                            });
                         processed.comments = eventComments;
-                        console.log(`Processed ${eventComments.length} comments for event ${event.id}`);
-                    } else {
-                        console.log(`No comments found for event ${event.id}`);
                     }
                     return processed;
                 });
@@ -375,12 +417,15 @@ const CONFIG = {
             if (comments && comments.length > 0) {
                 content += '\n\n---\nComments:\n\n';
                 
-                // Sort comments by creation time
                 const sortedComments = comments.sort((a, b) => a.created_at - b.created_at);
                 
                 sortedComments.forEach(comment => {
                     const date = new Date(comment.created_at * 1000).toLocaleString();
-                    content += `From: ${comment.pubkey}\n`;
+                    const metadata = comment.metadata || {};
+                    const displayName = metadata.display_name || metadata.name || 
+                                      (comment.pubkey ? comment.pubkey.substring(0, 8) + '...' : 'Anonymous');
+                    
+                    content += `From: ${displayName}\n`;
                     content += `Date: ${date}\n`;
                     content += `${comment.content}\n\n`;
                 });
@@ -475,6 +520,12 @@ const CONFIG = {
                     ${metadataHtml}
                     <div class="notice notice-success">
                         <p>Found ${events.length} posts (showing ${startIndex + 1}-${Math.min(endIndex, events.length)})</p>
+                        <p>
+                            <label>
+                                <input type="checkbox" id="select-all-events" class="select-all-checkbox">
+                                Select All Visible Posts
+                            </label>
+                        </p>
                     </div>
                     <div class="nostr-preview-list">
                         ${paginatedEvents.map(event => {
@@ -482,6 +533,12 @@ const CONFIG = {
                                 const commentCount = event.comments?.length || 0;
                                 return `
                                     <div class="nostr-preview-item">
+                                        <div class="nostr-preview-checkbox">
+                                            <input type="checkbox" 
+                                                   class="event-checkbox" 
+                                                   value="${event.id}" 
+                                                   data-event-index="${events.indexOf(event)}">
+                                        </div>
                                         <div class="nostr-preview-date">
                                             <strong>Date:</strong> ${new Date(event.created_at * 1000).toLocaleString()}
                                         </div>
@@ -524,16 +581,17 @@ const CONFIG = {
                         border: 1px solid #ccd0d4;
                         border-radius: 4px;
                     }
-                    .nostr-preview-list {
-                        margin: 0;
-                        padding: 0;
-                    }
                     .nostr-preview-item {
+                        display: flex;
+                        flex-direction: column;
                         margin-bottom: 15px;
                         padding: 10px;
                         border: 1px solid #e5e5e5;
                         background: #f8f9fa;
                         border-radius: 3px;
+                    }
+                    .nostr-preview-checkbox {
+                        margin-bottom: 10px;
                     }
                     .nostr-preview-date,
                     .nostr-preview-content,
@@ -644,11 +702,30 @@ const CONFIG = {
             
             $preview.html(previewHtml);
             
+            // Add event listeners for checkboxes
+            this.initializeCheckboxes($preview);
+            
             if (events.length > CONFIG.MAX_EVENTS_PER_PAGE) {
                 this.addPaginationControls($preview, events);
             }
             
             $('#import-preview').show();
+        }
+
+        initializeCheckboxes($preview) {
+            const $selectAll = $preview.find('#select-all-events');
+            const $eventCheckboxes = $preview.find('.event-checkbox');
+
+            // Handle "Select All" checkbox
+            $selectAll.on('change', function() {
+                $eventCheckboxes.prop('checked', $(this).is(':checked'));
+            });
+
+            // Update "Select All" when individual checkboxes change
+            $eventCheckboxes.on('change', function() {
+                const allChecked = $eventCheckboxes.length === $eventCheckboxes.filter(':checked').length;
+                $selectAll.prop('checked', allChecked);
+            });
         }
 
         handlePreviewError($preview, error, filter) {
@@ -667,8 +744,23 @@ const CONFIG = {
             
             if (!this.events || !this.events.length) {
                 console.error('No events to import');
-                $('#import-status').html(`                    <div class="notice notice-error">
+                $('#import-status').html(`
+                    <div class="notice notice-error">
                         <p>No events to import. Please preview first.</p>
+                    </div>
+                `);
+                return;
+            }
+
+            // Get selected event indexes
+            const selectedIndexes = $('.event-checkbox:checked').map(function() {
+                return $(this).data('event-index');
+            }).get();
+
+            if (selectedIndexes.length === 0) {
+                $('#import-status').html(`
+                    <div class="notice notice-error">
+                        <p>Please select at least one post to import.</p>
                     </div>
                 `);
                 return;
@@ -676,17 +768,17 @@ const CONFIG = {
 
             const $progress = $('#import-progress');
             const $status = $('#import-status');
-            const total = this.events.length;
-            const categories = $('#post_category').val(); // Get selected categories
+            const total = selectedIndexes.length;
+            const categories = $('#post_category').val();
             
-            console.log(`Preparing to import ${total} events`);
+            console.log(`Preparing to import ${total} selected events`);
             $progress.show();
             
             let successCount = 0;
             let failureCount = 0;
             
-            for (let i = 0; i < total; i++) {
-                const event = this.events[i];
+            for (let i = 0; i < selectedIndexes.length; i++) {
+                const event = this.events[selectedIndexes[i]];
                 console.log(`Processing event ${i + 1}/${total}:`, {
                     id: event.id,
                     created_at: new Date(event.created_at * 1000)
@@ -715,7 +807,12 @@ const CONFIG = {
                 failureCount
             });
             
-            $status.text(`Import complete! Successfully imported ${successCount} events.`);
+            $status.html(`
+                <div class="notice notice-success">
+                    <p>Import complete! Successfully imported ${successCount} events.</p>
+                    ${failureCount > 0 ? `<p>Failed to import ${failureCount} events.</p>` : ''}
+                </div>
+            `);
         }
 
         async importEvent(event, categories) {
