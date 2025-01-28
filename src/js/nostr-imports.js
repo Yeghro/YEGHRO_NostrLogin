@@ -479,6 +479,7 @@ const CONFIG = {
                     <div class="nostr-preview-list">
                         ${paginatedEvents.map(event => {
                             try {
+                                const commentCount = event.comments?.length || 0;
                                 return `
                                     <div class="nostr-preview-item">
                                         <div class="nostr-preview-date">
@@ -491,6 +492,9 @@ const CONFIG = {
                                                  (event.content.length > CONFIG.MAX_PREVIEW_LENGTH ? '...' : '')) : 
                                                 'No content'
                                             }
+                                        </div>
+                                        <div class="nostr-preview-comments">
+                                            <strong>Comments:</strong> ${commentCount}
                                         </div>
                                         <div class="nostr-preview-tags">
                                             <strong>Tags:</strong> ${
@@ -533,6 +537,7 @@ const CONFIG = {
                     }
                     .nostr-preview-date,
                     .nostr-preview-content,
+                    .nostr-preview-comments,
                     .nostr-preview-tags {
                         margin-bottom: 8px;
                         word-break: break-word;
@@ -629,6 +634,10 @@ const CONFIG = {
                     }
                     .website a:hover {
                         text-decoration: underline;
+                    }
+                    .nostr-preview-comments {
+                        margin-bottom: 8px;
+                        color: #666;
                     }
                 </style>
             `;
