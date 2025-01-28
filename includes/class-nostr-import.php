@@ -41,6 +41,11 @@ class Nostr_Import_Handler {
     }
 
     public function register_settings() {
+        // Add capability check before registering settings
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        
         register_setting('nostr_import_options', 'nostr_import_relays');
         register_setting('nostr_import_options', 'nostr_import_post_status', array(
             'type' => 'string',
@@ -160,11 +165,14 @@ class Nostr_Import_Handler {
     }
 
     public function handle_import_posts() {
-        check_ajax_referer('nostr_import_nonce', 'nonce');
-
+        // Add strict capability check with specific error message
         if (!current_user_can('manage_options')) {
-            wp_send_json_error(array('message' => __('Permission denied.', 'nostr-login')));
+            wp_send_json_error(array(
+                'message' => __('You do not have sufficient permissions to perform this action.', 'nostr-login')
+            ), 403);
         }
+        
+        check_ajax_referer('nostr_import_nonce', 'nonce');
 
         $event_json = wp_unslash($_POST['event'] ?? '');
         $event = json_decode($event_json, true);
@@ -247,15 +255,22 @@ class Nostr_Import_Handler {
      * Process content and import images into WordPress media library
      */
     private function process_content_with_images($content) {
+        // Sanitize content before processing
+        $content = wp_kses_post($content);
+        
         // Regular expression to find image URLs
         $pattern = '/(https?:\/\/[^\s<>"]+?\.(?:jpg|jpeg|gif|png|webp))/i';
         
         return preg_replace_callback($pattern, function($matches) {
-            $url = $matches[1];
+            $url = esc_url_raw($matches[1]);
+            
+            if (!$url) {
+                return '';
+            }
+            
             $image_id = $this->import_image_to_media_library($url);
             
             if ($image_id) {
-                // Return the WordPress image HTML with responsive classes
                 return sprintf(
                     '<figure class="wp-block-image size-large">%s</figure>',
                     wp_get_attachment_image(
@@ -263,15 +278,14 @@ class Nostr_Import_Handler {
                         'large',
                         false,
                         array(
-                            'class' => 'wp-image-' . $image_id . ' nostr-imported-image',
+                            'class' => 'wp-image-' . intval($image_id) . ' nostr-imported-image',
                             'style' => 'max-width: 100%; height: auto;'
                         )
                     )
                 );
             }
             
-            // Return original URL if import failed
-            return $url;
+            return esc_url($url);
         }, $content);
     }
 
@@ -279,37 +293,79 @@ class Nostr_Import_Handler {
      * Import an image from URL to WordPress media library
      */
     private function import_image_to_media_library($url) {
-        // Required for wp_handle_sideload
-        require_once(ABSPATH . 'wp-admin/includes/media.php');
-        require_once(ABSPATH . 'wp-admin/includes/file.php');
-        require_once(ABSPATH . 'wp-admin/includes/image.php');
+        try {
+            // Validate URL before processing
+            $url = esc_url_raw($url);
+            if (!$url || !wp_http_validate_url($url)) {
+                return false;
+            }
+            
+            // Required for wp_handle_sideload
+            require_once(ABSPATH . 'wp-admin/includes/media.php');
+            require_once(ABSPATH . 'wp-admin/includes/file.php');
+            require_once(ABSPATH . 'wp-admin/includes/image.php');
 
-        // Download URL to temp file
-        $tmp = download_url($url);
-        
-        if (is_wp_error($tmp)) {
-            error_log('Failed to download image: ' . $tmp->get_error_message());
+            // Download URL to temp file
+            $tmp = download_url($url);
+            
+            if (is_wp_error($tmp)) {
+                nostr_login_debug_log(sprintf(
+                    'Failed to download image from %s: %s',
+                    esc_url($url),
+                    $tmp->get_error_message()
+                ));
+                return false;
+            }
+
+            // Validate mime type
+            $file_type = wp_check_filetype(basename($url));
+            if (!$file_type['type'] || !in_array($file_type['type'], array('image/jpeg', 'image/png', 'image/gif', 'image/webp'))) {
+                @unlink($tmp);
+                nostr_login_debug_log(sprintf(
+                    'Invalid image type for %s: %s',
+                    esc_url($url),
+                    $file_type['type'] ?? 'unknown'
+                ));
+                return false;
+            }
+
+            // Validate file size before processing
+            $max_size = wp_max_upload_size();
+            if (@filesize($tmp) > $max_size) {
+                @unlink($tmp);
+                nostr_login_debug_log(sprintf(
+                    'File size exceeds maximum upload limit for %s',
+                    esc_url($url)
+                ));
+                return false;
+            }
+
+            // Set file parameters
+            $file_array = array(
+                'name' => basename($url),
+                'tmp_name' => $tmp
+            );
+
+            // Do the validation and storage stuff
+            $id = media_handle_sideload($file_array, 0);
+
+            // Cleanup temp file
+            @unlink($tmp);
+
+            if (is_wp_error($id)) {
+                error_log('Failed to import image: ' . $id->get_error_message());
+                return false;
+            }
+
+            return $id;
+        } catch (Exception $e) {
+            nostr_login_debug_log(sprintf(
+                'Exception while importing image %s: %s',
+                esc_url($url),
+                $e->getMessage()
+            ));
             return false;
         }
-
-        // Set file parameters
-        $file_array = array(
-            'name' => basename($url),
-            'tmp_name' => $tmp
-        );
-
-        // Do the validation and storage stuff
-        $id = media_handle_sideload($file_array, 0);
-
-        // Cleanup temp file
-        @unlink($tmp);
-
-        if (is_wp_error($id)) {
-            error_log('Failed to import image: ' . $id->get_error_message());
-            return false;
-        }
-
-        return $id;
     }
 
     private function validateComment($comment, $parentEvent) {
@@ -428,6 +484,133 @@ class Nostr_Import_Handler {
                     width: 100% !important;
                     padding: 0 10px !important;
                 }
+            }
+            
+            /* Preview Styling */
+            .nostr-preview-container {
+                max-width: 800px;
+                margin: 20px 0;
+            }
+
+            .nostr-preview-item {
+                background: #fff;
+                border: 1px solid #ddd;
+                padding: 15px;
+                margin-bottom: 15px;
+                border-radius: 4px;
+                display: grid;
+                grid-template-columns: auto 1fr;
+                gap: 15px;
+            }
+
+            .nostr-preview-checkbox {
+                align-self: center;
+            }
+
+            .nostr-preview-content {
+                grid-column: 2;
+                margin: 10px 0;
+                white-space: pre-line;
+            }
+
+            .nostr-preview-date,
+            .nostr-preview-comments,
+            .nostr-preview-tags {
+                grid-column: 2;
+                color: #666;
+                font-size: 0.9em;
+            }
+
+            .nostr-tag {
+                display: inline-block;
+                background: #f0f0f1;
+                padding: 2px 8px;
+                border-radius: 3px;
+                margin: 2px;
+                font-size: 0.9em;
+            }
+
+            /* User Metadata Styling */
+            .nostr-user-metadata {
+                background: #fff;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                margin-bottom: 20px;
+                overflow: hidden;
+            }
+
+            .profile-header {
+                position: relative;
+            }
+
+            .profile-banner img {
+                width: 100%;
+                height: 200px;
+                object-fit: cover;
+            }
+
+            .profile-info {
+                padding: 20px;
+                display: flex;
+                gap: 20px;
+            }
+
+            .profile-picture img {
+                width: 100px;
+                height: 100px;
+                border-radius: 50%;
+                border: 4px solid #fff;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+
+            .profile-details h3 {
+                margin: 0 0 10px 0;
+            }
+
+            .profile-details p {
+                margin: 5px 0;
+                color: #666;
+            }
+
+            /* Pagination Styling */
+            .nostr-pagination {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                gap: 15px;
+                margin: 20px 0;
+            }
+
+            .page-info {
+                color: #666;
+            }
+
+            /* Progress Bar Improvements */
+            .progress-bar {
+                background-color: #f0f0f1;
+                height: 24px;
+                border-radius: 12px;
+                overflow: hidden;
+                border: 1px solid #ddd;
+            }
+
+            .progress-bar-fill {
+                background-color: #2271b1;
+                height: 100%;
+                transition: width 0.3s ease-in-out;
+            }
+
+            /* Loading Indicator */
+            .nostr-loading-indicator {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                padding: 10px;
+                background: #fff;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                margin: 10px 0;
             }
         </style>
         <?php
