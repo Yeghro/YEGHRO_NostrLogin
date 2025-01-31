@@ -71,19 +71,19 @@ class Nostr_Import_Handler {
         wp_enqueue_script(
             'nostr-import',
             plugins_url('assets/js/nostr-imports.min.js', dirname(__FILE__)),
-            array('jquery', 'wp-mediaelement'), // Add mediaelement as dependency
+            array('jquery', 'wp-mediaelement'),
             '1.0.0',
             true
         );
 
         // Get relay URLs and add debug logging
         $relay_urls = $this->get_relay_urls();
-        error_log('Configured relay URLs: ' . print_r($relay_urls, true));
+        nostr_login_debug_log('Configured relay URLs: ' . wp_json_encode($relay_urls));
         
         wp_localize_script('nostr-import', 'nostrImport', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('nostr_import_nonce'),
-            'relays' => $relay_urls // Pass as direct array
+            'relays' => $relay_urls
         ));
     }
 
@@ -168,91 +168,180 @@ class Nostr_Import_Handler {
         <?php
     }
 
+    // Add rate limiting method
+    private function check_rate_limit() {
+        $option_name = 'nostr_import_last_request';
+        $min_interval = 2; // seconds
+        
+        $last_request = get_option($option_name, 0);
+        $current_time = time();
+        
+        if (($current_time - $last_request) < $min_interval) {
+            return false;
+        }
+        
+        update_option($option_name, $current_time);
+        return true;
+    }
+
+    // Modify handle_import_posts to include rate limiting
     public function handle_import_posts() {
-        // Add strict capability check with specific error message
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error(array(
-                'message' => __('You do not have sufficient permissions to perform this action.', 'nostr-login')
-            ), 403);
-        }
-        
-        check_ajax_referer('nostr_import_nonce', 'nonce');
-
-        $event_json = wp_unslash($_POST['event'] ?? '');
-        $event = json_decode($event_json, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            error_log('Failed to decode event JSON: ' . json_last_error_msg());
-            error_log('Received event JSON: ' . $event_json);
-            wp_send_json_error(array('message' => __('Invalid event data.', 'nostr-login')));
-        }
-
-        error_log('Processing event with ' . 
-            (isset($event['comments']) ? count($event['comments']) : 0) . 
-            ' comments');
-
-        // Process content and import images
-        $processed_content = $this->process_content_with_media($event['content'], $event);
-
-        // Create post from event with comments included in content
-        $post_data = array(
-            'post_content' => wp_kses_post($processed_content), // Use processed content with embedded images
-            'post_title' => wp_trim_words(
-                // Strip HTML for title generation
-                strip_tags($event['content']), 
-                10, 
-                '...'
-            ),
-            'post_status' => get_option('nostr_import_post_status', 'draft'),
-            'post_author' => get_current_user_id(),
-            'post_date' => date('Y-m-d H:i:s', $event['created_at']),
-            'post_type' => 'post',
-        );
-
-        $post_id = wp_insert_post($post_data);
-
-        if (is_wp_error($post_id)) {
-            error_log('Failed to create post: ' . $post_id->get_error_message());
-            wp_send_json_error(array('message' => $post_id->get_error_message()));
-        }
-
-        // Store Nostr metadata
-        update_post_meta($post_id, 'nostr_event_id', sanitize_text_field($event['id']));
-        update_post_meta($post_id, 'nostr_pubkey', sanitize_text_field($event['pubkey']));
-        
-        // Store comment count metadata
-        if (!empty($event['comments'])) {
-            update_post_meta($post_id, 'nostr_comment_count', count($event['comments']));
-        }
-
-        // Handle categories and tags
-        if (isset($_POST['categories'])) {
-            $categories = array_map('intval', json_decode(wp_unslash($_POST['categories']), true));
-            if (!empty($categories)) {
-                wp_set_post_categories($post_id, $categories, false);
+        try {
+            // Add strict capability check with specific error message
+            if (!current_user_can('manage_options')) {
+                wp_send_json_error(array(
+                    'message' => __('You do not have sufficient permissions to perform this action.', 'nostr-login')
+                ), 403);
             }
-        }
-
-        if (!empty($event['tags'])) {
-            $tags = array_filter($event['tags'], function($tag) {
-                return $tag[0] === 't';
-            });
             
-            if (!empty($tags)) {
-                $tag_names = array_map(function($tag) {
-                    return sanitize_text_field($tag[1]);
-                }, $tags);
-                wp_set_post_tags($post_id, $tag_names, true);
+            // Add strict nonce verification
+            if (!check_ajax_referer('nostr_import_nonce', 'nonce', false)) {
+                wp_send_json_error(array(
+                    'message' => __('Security check failed.', 'nostr-login')
+                ), 403);
             }
-        }
 
-        wp_send_json_success(array(
-            'message' => sprintf(
-                __('Post imported successfully with %d comments included.', 'nostr-login'),
-                !empty($event['comments']) ? count($event['comments']) : 0
-            ),
-            'post_id' => $post_id
-        ));
+            // Add rate limiting check
+            if (!$this->check_rate_limit()) {
+                wp_send_json_error(array(
+                    'message' => __('Please wait before making another request.', 'nostr-login')
+                ), 429);
+            }
+
+            // Sanitize and validate input data
+            $event_json = isset($_POST['event']) ? sanitize_text_field(wp_unslash($_POST['event'])) : '';
+            if (empty($event_json)) {
+                wp_send_json_error(array(
+                    'message' => __('No event data provided.', 'nostr-login')
+                ));
+            }
+
+            $event = json_decode($event_json, true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                wp_send_json_error(array(
+                    'message' => __('Invalid JSON data provided.', 'nostr-login')
+                ));
+            }
+
+            // Validate required event fields
+            if (!isset($event['id'], $event['content'], $event['created_at'])) {
+                wp_send_json_error(array(
+                    'message' => __('Invalid event structure.', 'nostr-login')
+                ));
+            }
+
+            nostr_login_debug_log('Processing event with ' . 
+                (isset($event['comments']) ? count($event['comments']) : 0) . 
+                ' comments');
+
+            // Check for existing post before proceeding
+            $existing_post_id = $this->check_existing_post($event['id']);
+            if ($existing_post_id) {
+                // Get post status and URL
+                $post = get_post($existing_post_id);
+                $post_url = get_permalink($existing_post_id);
+                
+                nostr_login_debug_log('Skipping existing post', array(
+                    'post_id' => $existing_post_id,
+                    'status' => $post->post_status,
+                    'url' => $post_url,
+                    'event_id' => $event['id']
+                ));
+                
+                wp_send_json_success(array(
+                    'skipped' => true,
+                    'post_id' => $existing_post_id,
+                    'post_status' => $post->post_status,
+                    'post_url' => $post_url,
+                    /* translators: %1$d: Post ID, %2$s: Post status */
+                    'message' => sprintf(
+                        __('Post already exists (ID: %1$d, Status: %2$s). Skipping import.', 'nostr-login'),
+                        $existing_post_id,
+                        $post->post_status
+                    )
+                ));
+                return;
+            }
+
+            // Process content and import images
+            $processed_content = $this->process_content_with_media($event['content'], $event);
+
+            // Create post data array with better sanitization
+            $post_data = array(
+                'post_content' => wp_kses_post($processed_content),
+                'post_title' => sanitize_text_field(wp_trim_words(
+                    wp_strip_all_tags($event['content']), 
+                    10, 
+                    '...'
+                )),
+                'post_status' => get_option('nostr_import_post_status', 'draft'),
+                'post_author' => get_current_user_id(),
+                'post_date' => gmdate('Y-m-d H:i:s', $event['created_at']),
+                'post_date_gmt' => gmdate('Y-m-d H:i:s', $event['created_at']),
+                'post_type' => 'post',
+            );
+
+            // Use transaction for post creation
+            $post_id = $this->create_post_with_comments($post_data, $event['comments'] ?? []);
+
+            if (is_wp_error($post_id)) {
+                nostr_login_debug_log('Failed to create post', array(
+                    'error' => $post_id->get_error_message(),
+                    'event_id' => $event['id']
+                ));
+                wp_send_json_error(array(
+                    'message' => $post_id->get_error_message()
+                ), 500);
+                return;
+            }
+
+            // Store metadata with better error handling
+            try {
+                $this->store_post_metadata($post_id, $event);
+            } catch (Exception $e) {
+                nostr_login_debug_log('Failed to store post metadata', array(
+                    'error' => $e->getMessage(),
+                    'post_id' => $post_id,
+                    'event_id' => $event['id']
+                ));
+            }
+
+            // After successful post creation, verify the post exists
+            $created_post = get_post($post_id);
+            if (!$created_post) {
+                throw new Exception('Post creation verified failed - post does not exist after creation');
+            }
+
+            $post_url = get_permalink($post_id);
+            
+            nostr_login_debug_log('Post created successfully', array(
+                'post_id' => $post_id,
+                'status' => $created_post->post_status,
+                'url' => $post_url,
+                'event_id' => $event['id']
+            ));
+
+            wp_send_json_success(array(
+                /* translators: %d: Number of comments imported */
+                'message' => sprintf(
+                    __('Post imported successfully with %d comments included.', 'nostr-login'),
+                    !empty($event['comments']) ? count($event['comments']) : 0
+                ),
+                'post_id' => $post_id,
+                'post_status' => $created_post->post_status,
+                'post_url' => $post_url
+            ));
+
+        } catch (Exception $e) {
+            nostr_login_debug_log('Import failed', array(
+                'error' => $e->getMessage(),
+                'event_id' => $event['id'] ?? 'unknown',
+                'trace' => $e->getTraceAsString()
+            ));
+            wp_send_json_error(array(
+                'message' => __('Import failed: ', 'nostr-login') . $e->getMessage()
+            ), 500);
+        }
     }
 
     /**
@@ -272,7 +361,7 @@ class Nostr_Import_Handler {
                 return '';
             }
             
-            $image_id = $this->import_media_to_library($url);
+            $image_id = $this->get_or_create_media($url);
             
             if ($image_id) {
                 return sprintf(
@@ -298,27 +387,49 @@ class Nostr_Import_Handler {
      */
     private function import_media_to_library($url, $type = 'image') {
         try {
-            // Validate URL before processing
+            // Validate URL
             $url = esc_url_raw($url);
             if (!$url || !wp_http_validate_url($url)) {
-                error_log('Invalid media URL: ' . $url);
-                return false;
+                throw new Exception('Invalid media URL');
             }
-            
-            // Required for wp_handle_sideload
-            require_once(ABSPATH . 'wp-admin/includes/media.php');
-            require_once(ABSPATH . 'wp-admin/includes/file.php');
-            require_once(ABSPATH . 'wp-admin/includes/image.php');
 
-            // Download URL to temp file
+            // Add timeout and user agent for better compatibility
+            add_filter('http_request_args', function($args) {
+                $args['timeout'] = 30;
+                $args['user-agent'] = 'WordPress/Nostr-Importer';
+                return $args;
+            });
+
+            // Download with better error handling
             $tmp = download_url($url);
-            
             if (is_wp_error($tmp)) {
-                error_log('Failed to download media: ' . $tmp->get_error_message());
-                return false;
+                throw new Exception($tmp->get_error_message());
             }
 
-            // Define allowed mime types with more comprehensive video support
+            // Validate file size
+            $max_size = wp_max_upload_size();
+            if (filesize($tmp) > $max_size) {
+                wp_delete_file($tmp);
+                /* translators: %s: Maximum allowed file size in formatted bytes */
+                throw new Exception(sprintf(
+                    __('File size exceeds maximum upload limit of %s', 'nostr-login'),
+                    size_format($max_size)
+                ));
+            }
+
+            // Enhanced MIME type validation
+            $file_info = wp_check_filetype(basename($url), null);
+            if (!$file_info['type']) {
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $mime_type = finfo_file($finfo, $tmp);
+                finfo_close($finfo);
+            } else {
+                $mime_type = $file_info['type'];
+            }
+            
+            nostr_login_debug_log("Detected MIME type for $url: $mime_type");
+            
+            // Validate mime type
             $allowed_types = array(
                 'image' => array(
                     'image/jpeg',
@@ -338,23 +449,9 @@ class Nostr_Import_Handler {
                 ),
             );
             
-            // Get file info with better MIME type detection
-            $file_info = wp_check_filetype(basename($url), null);
-            $mime_type = $file_info['type'];
-            
-            if (!$mime_type) {
-                // Fallback MIME type detection
-                $finfo = finfo_open(FILEINFO_MIME_TYPE);
-                $mime_type = finfo_file($finfo, $tmp);
-                finfo_close($finfo);
-            }
-            
-            error_log("Detected MIME type for $url: $mime_type");
-            
-            // Validate mime type
-            if (!$mime_type || !in_array($mime_type, $allowed_types[$type])) {
-                @unlink($tmp);
-                error_log("Invalid $type mime type: $mime_type");
+            if (!in_array($mime_type, $allowed_types[$type])) {
+                wp_delete_file($tmp);
+                nostr_login_debug_log("Invalid $type mime type: $mime_type");
                 return false;
             }
 
@@ -381,10 +478,10 @@ class Nostr_Import_Handler {
             $id = media_handle_sideload($file_array, 0);
 
             // Cleanup temp file
-            @unlink($tmp);
+            wp_delete_file($tmp);
 
             if (is_wp_error($id)) {
-                error_log('Failed to import media: ' . $id->get_error_message());
+                nostr_login_debug_log('Failed to import media: ' . $id->get_error_message());
                 return false;
             }
 
@@ -396,9 +493,9 @@ class Nostr_Import_Handler {
 
             return $id;
         } catch (Exception $e) {
-            error_log('Exception while importing media: ' . $e->getMessage());
+            nostr_login_debug_log('Nostr Import - Media Import Error: ' . $e->getMessage());
             if (isset($tmp) && file_exists($tmp)) {
-                @unlink($tmp);
+                wp_delete_file($tmp);
             }
             return false;
         }
@@ -406,8 +503,15 @@ class Nostr_Import_Handler {
 
     // Add SVG validation
     private function validate_svg($file) {
-        // Read SVG file content
-        $content = file_get_contents($file);
+        $response = wp_remote_get($file);
+        if (is_wp_error($response)) {
+            return false;
+        }
+        
+        $content = wp_remote_retrieve_body($response);
+        if (empty($content)) {
+            return false;
+        }
         
         // Basic security checks
         if (false === $content) {
@@ -459,7 +563,7 @@ class Nostr_Import_Handler {
 
     private function validateComment($comment, $parentEvent) {
         if (empty($comment['id']) || empty($comment['content']) || empty($comment['created_at'])) {
-            error_log('Comment validation failed: missing required fields');
+            nostr_login_debug_log('Comment validation failed: missing required fields');
             return false;
         }
 
@@ -475,7 +579,7 @@ class Nostr_Import_Handler {
         }
 
         if (!$hasValidReference) {
-            error_log('Comment validation failed: no valid reference to parent event');
+            nostr_login_debug_log('Comment validation failed: no valid reference to parent event');
             return false;
         }
 
@@ -483,14 +587,12 @@ class Nostr_Import_Handler {
     }
 
     private function import_comment($comment, $post_id) {
-        error_log('Processing comment for post ' . $post_id . ': ' . print_r($comment, true));
-
         $commentdata = array(
             'comment_post_ID' => $post_id,
             'comment_content' => wp_kses_post($comment['content']),
-            'comment_date' => date('Y-m-d H:i:s', $comment['created_at']),
+            'comment_date' => gmdate('Y-m-d H:i:s', $comment['created_at']),
             'comment_approved' => 1,
-            'comment_type' => '', // Use default comment type since these are regular kind:1 notes
+            'comment_type' => '',
         );
 
         // Try to get author information from metadata
@@ -519,14 +621,10 @@ class Nostr_Import_Handler {
         $commentdata['comment_author'] = $author_name;
         $commentdata['comment_author_url'] = $author_url;
         
-        error_log('Inserting comment with data: ' . print_r($commentdata, true));
-        
         // Store the comment and get the comment ID
         $comment_id = wp_insert_comment($commentdata);
 
         if ($comment_id) {
-            error_log('Successfully created comment with ID: ' . $comment_id);
-            
             // Store Nostr metadata for the comment
             add_comment_meta($comment_id, 'nostr_event_id', sanitize_text_field($comment['id']));
             add_comment_meta($comment_id, 'nostr_pubkey', sanitize_text_field($comment['pubkey']));
@@ -542,8 +640,6 @@ class Nostr_Import_Handler {
             if ($parent_event_id) {
                 add_comment_meta($comment_id, 'nostr_parent_event_id', sanitize_text_field($parent_event_id));
             }
-        } else {
-            error_log('Failed to create comment');
         }
 
         return $comment_id;
@@ -731,5 +827,233 @@ class Nostr_Import_Handler {
             }
         </style>
         <?php
+    }
+
+    private function create_post_with_comments($post_data, $comments) {
+        // Use wp_insert_post() which handles transactions internally
+        $post_id = wp_insert_post($post_data, true);
+        
+        if (is_wp_error($post_id)) {
+            return $post_id;
+        }
+        
+        // Process comments if any
+        if (!empty($comments)) {
+            foreach ($comments as $comment) {
+                $comment_id = $this->import_comment($comment, $post_id);
+                if (!$comment_id) {
+                    wp_delete_post($post_id, true); // Cleanup if comment import fails
+                    return new WP_Error('comment_import_failed', __('Failed to import comment', 'nostr-login'));
+                }
+            }
+        }
+        
+        return $post_id;
+    }
+
+    // Critical: Add caching for imported media and metadata
+    private function get_or_create_media($url, $type = 'image') {
+        // Generate cache key
+        $cache_key = 'nostr_media_' . md5($url);
+        
+        // Check transient cache first
+        $media_id = get_transient($cache_key);
+        if (false !== $media_id) {
+            return $media_id;
+        }
+
+        // Import media if not cached
+        $media_id = $this->import_media_to_library($url, $type);
+        if ($media_id) {
+            // Cache for 24 hours
+            set_transient($cache_key, $media_id, DAY_IN_SECONDS);
+        }
+
+        return $media_id;
+    }
+
+    // Add batch processing for large imports
+    private function process_batch($events, $batch_size = 10) {
+        $total = count($events);
+        $processed = 0;
+        $results = array();
+
+        while ($processed < $total) {
+            $batch = array_slice($events, $processed, $batch_size);
+            foreach ($batch as $event) {
+                // Process event
+                $result = $this->create_post_with_comments(
+                    $this->prepare_post_data($event),
+                    $event['comments'] ?? []
+                );
+                $results[] = $result;
+            }
+            $processed += $batch_size;
+            
+            // Prevent timeout
+            if (connection_status() !== CONNECTION_NORMAL) {
+                break;
+            }
+        }
+
+        return $results;
+    }
+
+    // Critical: Add proper error logging and debugging
+    private function log_error($message, $context = array()) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            nostr_login_debug_log(sprintf(
+                '[Nostr Import] %s | Context: %s',
+                $message,
+                wp_json_encode($context)
+            ));
+        }
+    }
+
+    private function debug_log($message, $data = array()) {
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            nostr_login_debug_log(sprintf(
+                '[Nostr Import Debug] %s | Data: %s',
+                $message,
+                wp_json_encode($data)
+            ));
+        }
+    }
+
+    // Modify the check_existing_post method to be more thorough
+    private function check_existing_post($event_id) {
+        // Use WordPress meta query functionality
+        $existing_posts = get_posts(array(
+            'post_type' => 'post',
+            'post_status' => array('publish', 'draft', 'private'),
+            'meta_key' => 'nostr_event_id',
+            'meta_value' => sanitize_text_field($event_id),
+            'posts_per_page' => 1,
+            'fields' => 'ids',
+        ));
+        
+        if (!empty($existing_posts)) {
+            return (int) $existing_posts[0];
+        }
+        
+        // Check for orphaned metadata using get_posts
+        $orphaned_posts = get_posts(array(
+            'post_type' => 'any',
+            'post_status' => 'any',
+            'meta_key' => 'nostr_event_id',
+            'meta_value' => sanitize_text_field($event_id),
+            'fields' => 'ids',
+        ));
+        
+        if (!empty($orphaned_posts)) {
+            foreach ($orphaned_posts as $orphaned_id) {
+                delete_post_meta($orphaned_id, 'nostr_event_id');
+            }
+        }
+        
+        return false;
+    }
+
+    // Add this method to store metadata more safely
+    private function store_post_metadata($post_id, $event) {
+        // Use WordPress transients for caching
+        $cache_key = 'nostr_metadata_' . $post_id . '_' . md5(serialize($event));
+        
+        if (get_transient($cache_key)) {
+            return true;
+        }
+        
+        try {
+            // Check if this event ID is already used
+            $existing_with_event_id = $this->check_existing_post($event['id']);
+            if ($existing_with_event_id && $existing_with_event_id !== $post_id) {
+                /* translators: %1$s: Nostr event ID, %2$d: WordPress post ID */
+                throw new Exception(sprintf(
+                    esc_html__('Event ID %1$s is already associated with post ID %2$d', 'nostr-login'),
+                    esc_html($event['id']),
+                    absint($existing_with_event_id)
+                ));
+            }
+            
+            // Store metadata using WordPress functions
+            if (!empty($event['id'])) {
+                update_post_meta($post_id, 'nostr_event_id', sanitize_text_field($event['id']));
+            }
+            
+            if (!empty($event['pubkey'])) {
+                update_post_meta($post_id, 'nostr_pubkey', sanitize_text_field($event['pubkey']));
+            }
+            
+            if (!empty($event['comments'])) {
+                update_post_meta($post_id, 'nostr_comment_count', count($event['comments']));
+            }
+
+            // Process categories and tags
+            $this->process_taxonomies($post_id, $event);
+            
+            // Cache successful operation
+            set_transient($cache_key, true, HOUR_IN_SECONDS);
+            
+            return true;
+            
+        } catch (Exception $e) {
+            delete_transient($cache_key);
+            throw $e;
+        }
+    }
+
+    // New helper method to process taxonomies
+    private function process_taxonomies($post_id, $event) {
+        // Process categories if provided with nonce verification
+        if (
+            isset($_POST['categories']) && 
+            check_ajax_referer('nostr_import_nonce', 'nonce', false)
+        ) {
+            $categories = array_map(
+                'intval', 
+                json_decode(
+                    sanitize_text_field(wp_unslash($_POST['categories'])), 
+                    true
+                ) ?? []
+            );
+            if (!empty($categories)) {
+                wp_set_post_categories($post_id, $categories, false);
+            }
+        }
+
+        // Process tags from event
+        if (!empty($event['tags'])) {
+            $tags = array_filter($event['tags'], function($tag) {
+                return $tag[0] === 't';
+            });
+            
+            if (!empty($tags)) {
+                $tag_names = array_map(function($tag) {
+                    return sanitize_text_field($tag[1]);
+                }, $tags);
+                wp_set_post_tags($post_id, $tag_names, true);
+            }
+        }
+    }
+
+    private function verify_post_creation($post_id) {
+        $post = get_post($post_id);
+        
+        if (!$post) {
+            $this->log_error('Post verification failed', array(
+                'post_id' => $post_id,
+                'error' => 'Post does not exist after creation'
+            ));
+            return false;
+        }
+        
+        $this->debug_log('Post verification', array(
+            'post_id' => $post_id,
+            'status' => $post->post_status,
+            'type' => $post->post_type,
+            'date' => $post->post_date
+        ));
+        
+        return true;
     }
 }

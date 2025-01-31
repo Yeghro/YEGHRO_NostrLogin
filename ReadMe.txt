@@ -4,10 +4,11 @@ Donate link: https://getalby.com/p/yeghro
 Tags: nostr, login, authentication, bitcoin, decentralized
 Requires at least: 5.0
 Tested up to: 6.7
-Stable tag: 1.7
+Stable tag: 1.8
 Requires PHP: 7.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
+
 
 Enable secure WordPress authentication using Nostr keys - login with your Nostr identity.
 
@@ -29,6 +30,9 @@ YEGHRO Nostr Login enables WordPress users to authenticate using their Nostr key
 3. Go to Settings > Nostr Login to configure relay settings
 
 == Changelog ==
+
+= 1.8 =
+* Added option to import posts from Nostr to WordPress as posts.
 
 = 1.7 =
 * 1.6 modifcation proved to be unstable. Reverted to more stable and secure setup that requires user to 

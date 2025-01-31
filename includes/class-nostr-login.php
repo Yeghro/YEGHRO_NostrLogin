@@ -188,48 +188,42 @@ class Nostr_Login_Handler {
 
     public function ajax_nostr_login() {
         // Sanitize and verify nonce
-        $nonce = isset( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
-        if ( ! wp_verify_nonce( $nonce, 'nostr-login-nonce' ) ) {
-            wp_send_json_error( array( 'message' => __( 'Nonce verification failed.', 'nostr-login' ) ) );
+        $nonce = isset($_POST['nonce']) ? sanitize_text_field(wp_unslash($_POST['nonce'])) : '';
+        if (!wp_verify_nonce($nonce, 'nostr-login-nonce')) {
+            wp_send_json_error(array('message' => __('Nonce verification failed.', 'nostr-login')));
             wp_die();
         }
 
         // Sanitize input data
         $metadata_json = sanitize_text_field(wp_unslash($_POST['metadata'] ?? ''));
         $authtoken = sanitize_text_field(wp_unslash($_POST['authtoken'] ?? ''));
-        $authtoken = base64_decode($authtoken); // now a json encoded string
+        $authtoken = base64_decode($authtoken);
 
         // Verify authtoken event signature and format
         $event = new Event();
         if (!$event->verify($authtoken)) {
-            nostr_login_debug_log('Authtoken failed verification');
             wp_send_json_error(['message' => __('Invalid authtoken.', 'nostr-login')]);
         }
 
         // Do NIP98 specific authtoken validation checks
-        // @see https://github.com/nostr-protocol/nips/blob/master/98.md
         $nip98 = json_decode($authtoken);
         if (JSON_ERROR_NONE !== json_last_error()) {
-            nostr_login_debug_log('Invalid authtoken JSON: '.json_last_error_msg());
             wp_send_json_error(['message' => __('Invalid authtoken: ', 'nostr-login').json_last_error_msg()]);
         }
-        // nostr_login_debug_log('AUTH: '.print_r($nip98, true));
-        $valid = ('27235' == $nip98->kind) ? true : false;              // NIP98 event
-        $valid = (time() - $nip98->created_at <= 60) ? $valid : false;  // <60 secs old
-        $tags = array_column($nip98->tags, 1, 0);                       // Expected Tags
-        // nostr_login_debug_log(print_r($tags, true));
+
+        $valid = ('27235' == $nip98->kind) ? true : false;
+        $valid = (time() - $nip98->created_at <= 60) ? $valid : false;
+        $tags = array_column($nip98->tags, 1, 0);
         $valid = (admin_url('admin-ajax.php') == $tags['u']) ? $valid : false;
         $valid = ('post' == $tags['method']) ? $valid : false;
         if (!$valid) {
-            nostr_login_debug_log('Authorisation is invalid or expired');
             wp_send_json_error(['message' => __('Authorisation is invalid or expired.', 'nostr-login')]);
         }
 
         // Validate public key format
         $public_key = $nip98->pubkey;
-        if ( ! $this->is_valid_public_key( $public_key ) ) {
-            nostr_login_debug_log( 'Invalid public key format' );
-            wp_send_json_error( array( 'message' => __( 'Invalid public key format.', 'nostr-login' ) ) );
+        if (!$this->is_valid_public_key($public_key)) {
+            wp_send_json_error(array('message' => __('Invalid public key format.', 'nostr-login')));
         }
 
         // Decode and sanitize metadata

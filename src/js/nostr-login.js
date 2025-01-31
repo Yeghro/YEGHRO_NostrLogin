@@ -289,12 +289,10 @@ import { nip19, nip98 } from "nostr-tools";
         const $button = $(e.target);
 
         try {
-            // Disable button and show loading state
             $button.prop('disabled', true);
             $feedback.removeClass('notice-error notice-success').addClass('notice-info')
                 .html('Connecting to Nostr...').show();
 
-            // Check for extension
             if (typeof window.nostr === 'undefined') {
                 throw new Error('Nostr extension not found. Please install a Nostr extension.');
             }
@@ -306,14 +304,11 @@ import { nip19, nip98 } from "nostr-tools";
                 throw new Error('Failed to get public key from extension.');
             }
 
-            // Update feedback
             $feedback.html('Connecting to relays...');
 
-            // Ensure NDK is connected
             if (!ndk.connected) {
                 try {
                     await ndk.connect();
-                    console.log("connected to relays", ndk);
                 } catch (error) {
                     throw new Error('Failed to connect to relays. Please try again.');
                 }
@@ -321,39 +316,28 @@ import { nip19, nip98 } from "nostr-tools";
 
             $feedback.html('Fetching Nostr profile...');
 
-            // Create NDK user and fetch profile with explicit error handling
             const ndkUser = ndk.getUser({ pubkey: user.pubkey });
             ndkUser.signer = nip07Signer;
 
             try {
-                // Set a timeout for profile fetching
                 const profilePromise = ndkUser.fetchProfile();
                 const timeoutPromise = new Promise((_, reject) =>
                     setTimeout(() => reject(new Error('Profile fetch timeout')), 15000)
                 );
 
                 await Promise.race([profilePromise, timeoutPromise]);
-
-                if (!ndkUser.profile) {
-                    console.warn('No profile data found, proceeding with public key only');
-                }
             } catch (error) {
-                console.warn('Profile fetch failed:', error);
                 // Continue with just the public key if profile fetch fails
             }
 
-            // Prepare metadata with at least the public key
             const metadata = {
                 public_key: user.pubkey,
                 nip05: ndkUser.profile?.nip05 || '',
                 image: ndkUser.profile?.image || ''
             };
 
-            console.log('Sending metadata to WordPress:', metadata);
-
             $feedback.html('Updating profile...');
 
-            // Send to WordPress
             const response = await $.ajax({
                 url: nostr_login_ajax.ajax_url,
                 type: 'POST',
@@ -368,11 +352,9 @@ import { nip19, nip98 } from "nostr-tools";
                 $feedback.removeClass('notice-info').addClass('notice-success')
                     .html('Successfully synced Nostr data!');
 
-                // Update displayed values
                 $('#nostr-public-key').val(metadata.public_key);
                 $('#nostr-nip05').val(metadata.nip05);
 
-                // Refresh page if avatar updated
                 if (metadata.image) {
                     setTimeout(() => location.reload(), 1500);
                 }
@@ -380,7 +362,6 @@ import { nip19, nip98 } from "nostr-tools";
                 throw new Error(response.data.message || 'Failed to update profile');
             }
         } catch (error) {
-            console.error('Sync error:', error);
             $feedback.removeClass('notice-info').addClass('notice-error')
                 .html(`Error: ${error.message}`);
         } finally {
@@ -390,15 +371,10 @@ import { nip19, nip98 } from "nostr-tools";
 
     // Add event listener
     $(document).ready(function() {
-        console.log('Nostr login script loaded');
-
         const $connectButton = $('#nostr-connect-extension');
         const $resyncButton = $('#nostr-resync-extension');
 
         if ($connectButton.length || $resyncButton.length) {
-            console.log('Found Nostr connect/resync buttons');
-            
-            // Attach event handlers to buttons
             $('#nostr-connect-extension, #nostr-resync-extension').on('click', handleNostrSync);
         }
     });

@@ -13,6 +13,25 @@ const CONFIG = {
 (function($) {
     'use strict';
 
+    function handleError(error, context) {
+        // Send error to server if WP_DEBUG is true
+        if (window.nostrImport?.debug) {
+            jQuery.post(nostrImport.ajax_url, {
+                action: 'nostr_log_error',
+                nonce: nostrImport.nonce,
+                error: error.message,
+                context: context
+            });
+        }
+        
+        // Show user-friendly notice
+        jQuery('#nostr-import-form').prepend(`
+            <div class="notice notice-error is-dismissible">
+                <p>${error.message}</p>
+            </div>
+        `);
+    }
+
     class NostrImporter {
         constructor() {
             this.ndk = null;
@@ -22,12 +41,6 @@ const CONFIG = {
             this.currentPage = 1;
             this.lastRequestTime = 0;
             
-            // Enable NDK debugging in browser console
-            if (typeof localStorage !== 'undefined') {
-                localStorage.debug = 'ndk:*';
-            }
-            
-            console.log('NostrImporter initialized');
             this.initializeListeners();
             
             this.defaultRelays = [
@@ -40,21 +53,14 @@ const CONFIG = {
 
         async initializeNDK() {
             if (this.ndk && this.ndk.pool.relays.size > 0) {
-                console.log('NDK already initialized');
                 return;
             }
 
-            // Log the available relay configuration
-            console.log('nostrImport configuration:', window.nostrImport);
-            
-            // Use configured relays with strong validation
             const configuredRelays = window.nostrImport?.relays;
             const relays = Array.isArray(configuredRelays) && configuredRelays.length > 0
                 ? configuredRelays
                 : this.defaultRelays;
             
-            console.log('Using relays:', relays);
-
             this.ndk = new NDK({
                 explicitRelayUrls: relays,
                 enableOutboxModel: false
@@ -62,17 +68,13 @@ const CONFIG = {
 
             try {
                 await this.ndk.connect();
-                console.log('Successfully connected to relays');
-                const connectedRelays = Array.from(this.ndk.pool.relays.keys());
-                console.log('Connected relays:', connectedRelays);
             } catch (error) {
-                console.error('Failed to connect to relays:', error);
-                throw new Error('Failed to connect to Nostr relays');
+                handleError(error, 'Failed to connect to Nostr relays');
+                throw error;
             }
         }
 
         initializeListeners() {
-            console.log('Setting up event listeners');
             $('#nostr-import-form').on('submit', (e) => this.handlePreview(e));
             $('#start-import').on('click', () => this.handleImport());
         }
@@ -205,41 +207,33 @@ const CONFIG = {
         }
 
         async fetchEventsWithTimeout(filter) {
-            console.log('Starting event fetch with filter:', filter);
             const subscription = this.ndk.subscribe(filter, { closeOnEose: true });
             const events = new Set();
             const tagFilter = $('input[name="tag_filter"]').val();
             const importComments = $('#import_comments').is(':checked');
-            console.log('Import comments checkbox state:', importComments);
             const commentEvents = new Map();
 
             // Step 1: First collect all the events
             try {
                 await new Promise((resolve) => {
                     subscription.on('event', (event) => {
-                        console.log('Received event:', event.id);
                         if (this.eventMatchesTagFilter(event, tagFilter)) {
                             events.add(event);
-                            console.log('Event added to collection:', event.id);
                         }
                     });
 
                     subscription.on('eose', () => {
-                        console.log(`EOSE received. Total events collected: ${events.size}`);
                         resolve();
                     });
 
                     setTimeout(() => {
-                        console.log('Timeout reached for event fetch');
                         resolve();
                     }, CONFIG.TIMEOUT_MS);
                 });
 
                 // Step 2: If comments are enabled, fetch comments for all collected events
                 if (importComments && events.size > 0) {
-                    console.log('Comment import is enabled and we have events to process');
                     const eventIds = Array.from(events).map(e => e.id);
-                    console.log('Events to fetch comments for:', eventIds);
                     
                     const commentFilter = {
                         kinds: [1],
@@ -254,17 +248,12 @@ const CONFIG = {
                         commentFilter.until = filter.until;
                     }
 
-                    console.log('Fetching comments with filter:', commentFilter);
-
                     const commentSubscription = this.ndk.subscribe(commentFilter, { 
                         closeOnEose: true
                     });
 
                     await new Promise((resolve) => {
                         commentSubscription.on('event', (comment) => {
-                            console.log('Received potential comment:', comment.id);
-                            
-                            // Find which event this comment belongs to
                             const parentEventId = comment.tags.find(tag => 
                                 tag[0] === 'e' && eventIds.includes(tag[1])
                             )?.[1];
@@ -272,32 +261,18 @@ const CONFIG = {
                             if (parentEventId) {
                                 if (!commentEvents.has(parentEventId)) {
                                     commentEvents.set(parentEventId, new Set());
-                                    console.log(`Created new comment collection for event ${parentEventId}`);
                                 }
                                 commentEvents.get(parentEventId).add(comment);
-                                console.log(`Added comment ${comment.id} to event ${parentEventId}`);
-                            } else {
-                                console.log(`Comment ${comment.id} did not match any parent events`);
                             }
                         });
 
                         commentSubscription.on('eose', () => {
-                            console.log('Comment fetch EOSE received');
-                            console.log('Final comment counts:', Array.from(commentEvents.entries()).map(
-                                ([eventId, comments]) => `${eventId}: ${comments.size} comments`
-                            ));
                             resolve();
                         });
 
                         setTimeout(() => {
-                            console.log('Timeout reached for comment fetch');
                             resolve();
                         }, CONFIG.TIMEOUT_MS);
-                    });
-                } else {
-                    console.log('Skipping comment fetch:', {
-                        importCommentsEnabled: importComments,
-                        eventCount: events.size
                     });
                 }
 
@@ -309,8 +284,6 @@ const CONFIG = {
                     });
                 });
 
-                console.log(`Fetching metadata for ${commenterPubkeys.size} commenters`);
-                
                 const commenterMetadata = new Map();
                 if (commenterPubkeys.size > 0) {
                     const metadataFilter = {
@@ -328,7 +301,6 @@ const CONFIG = {
                             try {
                                 const metadata = JSON.parse(event.content);
                                 commenterMetadata.set(event.pubkey, metadata);
-                                console.log(`Got metadata for ${event.pubkey}:`, metadata);
                             } catch (error) {
                                 console.error(`Error parsing metadata for ${event.pubkey}:`, error);
                             }
@@ -358,7 +330,6 @@ const CONFIG = {
                     return processed;
                 });
 
-                console.log('Final processed events:', processedEvents);
                 return processedEvents;
 
             } catch (error) {
@@ -369,17 +340,10 @@ const CONFIG = {
 
         validateComment(comment, parentEvent) {
             try {
-                console.log(`Validating comment ${comment.id} for parent ${parentEvent.id}`);
-                console.log('Comment tags:', comment.tags);
-                
-                // Check if the comment has an e-tag referencing the parent event
                 const isValid = comment.tags.some(tag => {
-                    const isValid = tag[0] === 'e' && tag[1] === parentEvent.id;
-                    console.log(`Tag validation: ${tag[0]} === 'e' && ${tag[1]} === ${parentEvent.id} = ${isValid}`);
-                    return isValid;
+                    return tag[0] === 'e' && tag[1] === parentEvent.id;
                 });
 
-                console.log(`Comment validation result: ${isValid}`);
                 return isValid;
             } catch (error) {
                 console.error('Error validating comment:', error);
@@ -487,8 +451,6 @@ const CONFIG = {
             });
 
             this.events = processedEvents;
-
-            console.log(`Processed ${processedEvents.length} events`);
 
             if (processedEvents.length === 0) {
                 $preview.html(`
@@ -655,8 +617,6 @@ const CONFIG = {
         }
 
         async handleImport() {
-            console.log('Starting import process');
-            
             if (!this.events || !this.events.length) {
                 console.error('No events to import');
                 $('#import-status').html(`
@@ -686,7 +646,6 @@ const CONFIG = {
             const total = selectedIndexes.length;
             const categories = $('#post_category').val();
             
-            console.log(`Preparing to import ${total} selected events`);
             $progress.show();
             
             let successCount = 0;
@@ -694,16 +653,11 @@ const CONFIG = {
             
             for (let i = 0; i < selectedIndexes.length; i++) {
                 const event = this.events[selectedIndexes[i]];
-                console.log(`Processing event ${i + 1}/${total}:`, {
-                    id: event.id,
-                    created_at: new Date(event.created_at * 1000)
-                });
                 
                 $status.text(`Importing event ${i + 1} of ${total}...`);
                 
                 try {
                     const response = await this.importEvent(event, categories);
-                    console.log(`Successfully imported event ${i + 1}:`, response);
                     successCount++;
                     
                     const progress = ((i + 1) / total) * 100;
@@ -715,12 +669,6 @@ const CONFIG = {
                     return;
                 }
             }
-            
-            console.log('Import complete. Summary:', {
-                total,
-                successCount,
-                failureCount
-            });
             
             $status.html(`
                 <div class="notice notice-success">
@@ -855,23 +803,20 @@ const CONFIG = {
             $container.find('video').each(function() {
                 const $video = $(this);
                 
-                // Remove any existing initialization
                 if ($video.data('initialized')) {
                     return;
                 }
 
-                // Add error handling
                 $video.on('error', function(e) {
-                    console.error('Video error:', e);
                     const $parent = $video.parent();
                     $parent.append(`
                         <div class="video-error">
                             Error loading video. Please check the source.
                         </div>
                     `);
+                    handleError(e, 'Video playback error');
                 });
 
-                // Add loading state
                 $video.on('loadstart', function() {
                     $video.addClass('loading');
                 }).on('canplay', function() {
