@@ -18,16 +18,31 @@ YEGHRO Nostr Login enables WordPress users to authenticate using their Nostr key
 
 = Key Features =
 
+Login
 * One-click login with Nostr browser extensions (NIP-07 compatible)
 * Automatic user registration for new Nostr users
 * Profile synchronization from Nostr metadata
 * Configurable Nostr relay settings
+
+Import (1.8 and later)
+* Import posts from Nostr to WordPress as posts.
+* Optionally imports comments from Nostr to WordPress as comments. 
+* Filter imports using tags and date range.
+* Import into specific categories.
+* Import as draft, publish or private.
+* Imports media from Nostr event and attaches to post.
+
+
+
 
 == Installation ==
 
 1. Upload `nostr-login` to the `/wp-content/plugins/` directory
 2. Activate the plugin through the 'Plugins' menu
 3. Go to Settings > Nostr Login to configure relay settings
+
+
+
 
 == Changelog ==
 
@@ -71,10 +86,14 @@ Nostr is a decentralized protocol enabling censorship-resistant social networkin
 = Is it safe to use my Nostr keys? =
 We recommend using a NIP-07 compatible browser extension like Alby or nos2x for the safest experience.
 
+= Where is the importer located? =
+The importer is located in the WordPress admin dashboard sidebar, under Tools > Nostr Importer.
+
 = How do I install the required PHP-GMP extension? =
 The PHP-GMP extension is required for secure cryptographic operations. Here's how to install it:
 
 For Ubuntu/Debian:
+
 1. Run: `sudo apt-get update && sudo apt-get install php-gmp`
 2. Restart PHP/web server: `sudo service php-fpm restart` (or apache2 if using Apache)
 
